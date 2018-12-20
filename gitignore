@@ -1,0 +1,3 @@
+*.pyc
+.idea/
+link_library.egg-info/
