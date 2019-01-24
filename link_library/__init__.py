@@ -48,3 +48,13 @@ def get_count_df(df, vals_list, merge_vals_list, sort_key, count_string='count')
     df_merge = reduce(lambda x, y: pd.merge(x, y, on = merge_vals_list), df_list).set_index(merge_vals_list).sum(axis=1).reset_index(name=count_string)
     df_merge = df_merge.sort_values([sort_key, count_string],ascending=False).reset_index(drop=True)
     return df_merge
+
+
+def input_log2_ref(exp_list):
+    print("Please select your reference experiment for log2ratio and p-values calculation")
+    print("{0}".format({no:exp for no,exp in enumerate(exp_list)}))
+    exp_ref = int(input("Enter a number (Default: 0): ") or "0")
+    if exp_ref < 0 or exp_ref > len(exp_list)-1:
+        print("ERROR: Incorrect experiment selected: {0}".format(exp_ref))
+        exit(1)
+    return exp_list[exp_ref]
