@@ -12,7 +12,8 @@ from scipy.stats import zscore
 
 class BagContainer(object):
 
-    def __init__(self, level, df_list, filter='', sel_exp=False, df_domains=None):
+    def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, df_domains=None):
+        self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
         self.col_exp = "exp_name"
@@ -98,12 +99,13 @@ class BagContainer(object):
             self.df_new = self.df_new.append(self.get_sum_ms1_intensities_df(copy.deepcopy(df)))
         if sel_exp:
             exp_dict = {no: exp for no, exp in enumerate(sorted(self.df_orig[self.col_exp].unique()))}
-            print("Please select the experiments you want to include")
+            print("Please select the experiments you want to exclude")
             print("{0}".format(exp_dict))
             sel = input("Enter a numbers separated by spaces): ")
             sel = sel.split(" ")
-            sel = [exp_dict[int(s)] for s in sel]
-            print(print("The following experiments were selected: {0}".format(sel)))
+            sel = [int(s) for s in sel]
+            sel = [exp_dict[s] for s in exp_dict.keys() if s not in sel]
+            print("The following experiments were selected: {0}".format(sel))
             self.df_orig = self.filter_exp(self.df_orig, sel)
             self.df_new = self.filter_exp(self.df_new, sel)
         self.df_new = self.df_new.sort_values(
@@ -181,6 +183,7 @@ class BagContainer(object):
         name = set(df[self.col_origin])
         # filtering these two means we get exactly the same results as from the regular bag container
         # removes violations (but no violations are calculated for monolinks)
+        # df = df.loc[df[self.vio_string] == 0]
         if self.col_level == self.col_uid:
             df = df.loc[df[self.vio_string] == 0]
             print("Shape of {0} after removing xTract violations on {1} level: {2}.".format(name, self.col_level,
@@ -260,7 +263,7 @@ class BagContainer(object):
         # a[:] = zscore(a, axis=0) # normalize along columns via z-score
         return df, b, a[m]
 
-    def getlog2ratio(self, sum_list, mean_list, ref, impute_na=False):
+    def getlog2ratio(self, sum_list, mean_list, ref):
         def get_loggi(x):
             log2col = pd.Series(np.log2(
                 x[self.col_area_sum_total] / x[self.col_area_sum_total].loc[x[self.col_exp] == ref].values[0]))
@@ -272,7 +275,7 @@ class BagContainer(object):
             return df
 
         df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
-        if impute_na:
+        if self.impute_missing:
             df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
         else:
@@ -282,7 +285,7 @@ class BagContainer(object):
         df = df.loc[df[self.col_exp] != ref]
         return df
 
-    def get_two_sided_ttest(self, sum_list, mean_list, ref, impute_na=False):
+    def get_two_sided_ttest(self, sum_list, mean_list, ref):
         def get_ttest(x):
             y = x.groupby(self.col_exp).apply(lambda t: pd.Series({self.col_pval:
                                                                        weightstats.ttest_ind(t[self.col_area_sum_total],
@@ -301,7 +304,7 @@ class BagContainer(object):
             return x
 
         df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
-        if impute_na:
+        if self.impute_missing:
             df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
         else:
@@ -407,9 +410,20 @@ class BagContainer(object):
 
     def get_prot_name_and_link_pos(self, df):
         # temp df; splitting uxid into positions and protein names
-        df_tmp = df[self.col_uxid].str.split(':').apply(
-            lambda x: pd.Series([[d for d in x if d.isdigit()],
-                                [d for d in x if not d.isdigit() and d != 'x']]))
+        def get_pos_and_prot(entry_list):
+            pos_list = []
+            prot_list = []
+            for entry in entry_list:
+                if entry == '':
+                    # found a link to amino acid one; xQuest just assigns an empty string here
+                    entry = '1'
+                if entry.isdigit():
+                    pos_list.append(int(entry))
+                elif not entry.isdigit() and entry != 'x':
+                    prot_list.append(entry)
+            return pd.Series([pos_list, prot_list])
+
+        df_tmp = df[self.col_uxid].str.split(':').apply(get_pos_and_prot)
         # direct assignment does not work as it takes just the column headers as values
         df[self.col_positions], df[self.col_proteins] = df_tmp[0], df_tmp[1]
         # if the bag container was given a domains list try to match it
@@ -423,8 +437,8 @@ class BagContainer(object):
                     pos2 = int(range_list[1])
                     return pos1 <= pos <= pos2
                 domain_all = ""
+                domain_list = []
                 pos_list = df_tmp[self.col_positions].iloc[0]
-                pos_list = [int(i) for i in pos_list]
                 prot_list = df_tmp[self.col_proteins].iloc[0]
                 assert len(pos_list) == len(prot_list)
                 for n, prot in enumerate(prot_list):
@@ -441,11 +455,13 @@ class BagContainer(object):
                     else:
                         print("ERROR: Multiple domains found. Exiting.")
                         exit(1)
-                    # right now domains are just added to a single string connected by a '-'
-                    if domain_all:
-                        domain_all += '-' + domain
-                    else:
-                        domain_all += domain
+                    domain_list.append(domain)
+                # remove duplicates
+                domain_list = list(set(domain_list))
+                # always sort so that the order of domains is identical for inversed crosslinks
+                domain_list.sort()
+                # join on - to get domain1-domain2 etc.
+                domain_all = '-'.join(domain_list)
                 return domain_all
             df_dom = df.groupby(self.col_uxid).apply(match_domains).reset_index(name=self.col_domain)
             df = pd.merge(df, df_dom, on=self.col_uxid)

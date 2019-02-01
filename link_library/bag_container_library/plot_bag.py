@@ -18,7 +18,7 @@ class PlotMaster(object):
         # how far up we want to sum up values; done first (understand it as an exclusion list)
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep] # self.bag_cont.col_tech_rep, self.bag_cont.col_charge self.bag_cont.col_weight_type
         # how far do we take the mean of values; done second
-        mean_list = sum_list
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep]
         # the following two lines will take the mean of the tech replicates; should always be used if don't want separate tech reps
         # mean_list = list(sum_list)
         # mean_list.remove(self.bag_cont.col_tech_rep)
@@ -34,24 +34,25 @@ class PlotMaster(object):
         sns.distplot(dist_orig, kde=True, fit=norm)
         self.plot_fig(name='cluster', extra="orig_dist")
         plt.clf()
-        sns.distplot(dist_imputed, kde=True, fit=norm)
-        self.plot_fig(name='cluster', extra="imputed_dist")
+        if len(dist_imputed) > 1:
+            sns.distplot(dist_imputed, kde=True, fit=norm)
+            self.plot_fig(name='cluster', extra="imputed_dist")
         print("Non imputed values: {0}. Imputed values: {1}".format(len(dist_orig),len(dist_imputed)))
         cg = sns.clustermap(data=df,cmap="mako_r",metric='canberra', row_colors=row_colors)
         ax = cg.ax_heatmap
         # hiding the y labels as they are really not informative
         ax.tick_params(axis='y', which='both', right=False, labelright=False)
-        self.plot_fig(name="cluster", g=cg)
+        self.plot_fig(name="cluster", g=cg, dpi=300)
         cg = sns.clustermap(data=df,cmap="mako_r", z_score=0, metric='canberra', row_colors=row_colors)
         ax = cg.ax_heatmap
         # hiding the y labels as they are really not informative
         ax.tick_params(axis='y', which='both', right=False, labelright=False)
-        self.plot_fig(name='cluster', extra="z_row", g=cg)
+        self.plot_fig(name='cluster', extra="z_row", g=cg, dpi=300)
         cg = sns.clustermap(data=df,cmap="mako_r", z_score=1, metric='canberra', row_colors=row_colors)
         ax = cg.ax_heatmap
         # hiding the y labels as they are really not informative
         ax.tick_params(axis='y', which='both', right=False, labelright=False)
-        self.plot_fig(name='cluster', extra="z_col", g=cg)
+        self.plot_fig(name='cluster', extra="z_col", g=cg, dpi=300)
 
     def plot_bar(self):
         df = pd.DataFrame(self.bag_cont.df_new)
@@ -110,18 +111,63 @@ class PlotMaster(object):
         mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep]
         df = self.bag_cont.get_group(sum_list, mean_list)
         df[self.bag_cont.col_area_sum_total] = np.log2(df[self.bag_cont.col_area_sum_total])
-        # df = self.bag_cont.get_prot_name_and_link_pos(df)
-        # df[self.bag_cont.col_exp+'_sorted'] = pd.Categorical(
+        # df[self.bag_cont.col_exp] = pd.Categorical(
         #     df[self.bag_cont.col_exp],
-        #     categories=['T5', 'T3', 'T2', 'T1', 'T6'],
+        #     categories=['T5', 'T3', 'T4', 'T2', 'T1', 'T6'],
         #     ordered=True
         # )
+        # reverse sort order for exp
+        df[self.bag_cont.col_exp] = pd.Categorical(
+            df[self.bag_cont.col_exp],
+            categories=sorted(df[self.bag_cont.col_exp].unique(), reverse=True),
+            ordered=True
+        )
         if self.bag_cont.col_domain:
+            df = self.bag_cont.get_prot_name_and_link_pos(df)
             df = df.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp, self.bag_cont.col_level])
+            df_domain_ov = self.bag_cont.get_group(sum_list, [self.bag_cont.col_exp])
+            df_domain_ov[self.bag_cont.col_area_sum_total] = np.log2(df_domain_ov[self.bag_cont.col_area_sum_total])
+            df_domain_ov = self.bag_cont.get_prot_name_and_link_pos(df_domain_ov)
+            # this will count all unique links per domain
+            # df_domain_ov['count'] = df_domain_ov.groupby([self.bag_cont.col_domain])[self.bag_cont.col_level].transform(
+            #     lambda x: len(x.unique()))
+            # this will count all unique links per domain and experiment (makes more sense tbh)
+            df_domain_ov['count'] = df_domain_ov.groupby([self.bag_cont.col_exp, self.bag_cont.col_domain])[
+                self.bag_cont.col_domain].transform('count')
+            # fg = sns.relplot(data=df_domain_ov, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+            #                  col=self.bag_cont.col_domain, kind='line', col_wrap=5, ci='sd',
+            #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
+            # df_domain_ov[self.bag_cont.col_exp] = pd.Categorical(
+            #     df_domain_ov[self.bag_cont.col_exp],
+            #     categories=['T5', 'T3', 'T2', 'T1', 'T6'],
+            #     ordered=True
+            # )
+            df_domain_ov = df_domain_ov.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp])
+            fg = sns.catplot(data=df_domain_ov, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                             col=self.bag_cont.col_domain, kind='point', col_wrap=5, ci='sd',
+                             hue=self.bag_cont.col_domain, sharey=False, sharex=False)
+            df_domain_ov['mean'] = df_domain_ov.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[self.bag_cont.col_area_sum_total].transform('mean')
+            print(df_domain_ov[df_domain_ov[self.bag_cont.col_level] == 'FUS-K9:297:x:FUS-K9:543'])
+            df['mean'] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[
+                self.bag_cont.col_area_sum_total].transform('mean')
+            print(df[df[self.bag_cont.col_level] == 'FUS-K9:297:x:FUS-K9:543'])
+            self.bag_cont.df_orig[
+                              self.bag_cont.df_orig[self.bag_cont.col_level] == 'FUS-K9:297:x:FUS-K9:543'].groupby(
+                self.bag_cont.col_exp)[self.bag_cont.col_area_sum_total].apply(lambda x: print(np.log2(x)))
+            print(np.log2(self.bag_cont.df_orig[self.bag_cont.df_orig[self.bag_cont.col_level] == 'FUS-K9:297:x:FUS-K9:543'].groupby(self.bag_cont.col_exp)[self.bag_cont.col_area_sum_total].mean()))
+            exit()
+            # print(df_domain_ov.groupby(self.bag_cont.col_domain).apply(lambda x: print(x)))
+
+            fg.map(plib.map_point, self.bag_cont.col_exp, 'mean', 'count')
+            self.plot_fig(name="domain_overview", g=fg, facet_kws={'sharey':False, 'sharex':False})
         else:
             df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
-        fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False, hue=self.bag_cont.col_domain)
+        fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False, hue=self.bag_cont.col_domain, sharex=False)
+        # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+        #                  col=self.bag_cont.col_level, kind='line', col_wrap=5, ci='sd',
+        #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
         self.plot_fig(name="link_overview",g=fg)
+
 
     def plot_dilution_series(self):
         sns.set(font_scale=1.75)
@@ -252,7 +298,7 @@ class PlotMaster(object):
             self.plot_fig(name='rep_bar',extra="{0}".format(row))
 
 
-    def plot_fig(self, name, extra='', g = None):
+    def plot_fig(self, name, extra='', g = None, **kwargs):
         filter = ""
         if self.bag_cont.filter:
             filter = '_' + self.bag_cont.filter
@@ -262,5 +308,5 @@ class PlotMaster(object):
         if g is None:
             plib.save_fig(save_string, self.out_folder)
         else:
-            plib.save_g(g, save_string, self.out_folder)
+            plib.save_g(g, save_string, self.out_folder, **kwargs)
         plt.clf()
