@@ -190,13 +190,13 @@ class BagContainer(object):
                                                                                             df.shape))
         elif self.col_level == self.col_uxid:
             # TODO: I assume that one violation for a peptide invalidates the whole link; I am not sure whether this is correct
-            # TODO: it also seems that these links won't even get imputed by xtract which they right in this script
+            # TODO: it also seems that these links won't even get imputed by xtract which they do right now in this script
             df = df.groupby([self.col_level, self.col_exp]).filter(lambda x: x[self.vio_string].sum() == 0)
             print("Shape of {0} after removing xTract violations on {1} level: {2}.".format(name, self.col_level,
                                                                                             df.shape))
         return df
 
-    # TODO: right now filters on peptide level; as such is inconsistent with the xtract filtering on uxid level
+    # TODO: right now filters on peptide level; as such is inconsistent with the xtract filtering on uxid level; I am not sure whether this is correct
     def remove_lh_violations(self, df):
         def get_is_not_vio(x):
             # absurd default value will always result in violation

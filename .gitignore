@@ -1,3 +1,4 @@
 *.pyc
 .idea/
 link_library.egg-info/
+link_library/__pycache__/
