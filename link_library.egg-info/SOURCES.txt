@@ -1,5 +1,0 @@
-link_library/__init__.py
-link_library.egg-info/PKG-INFO
-link_library.egg-info/SOURCES.txt
-link_library.egg-info/dependency_links.txt
-link_library.egg-info/top_level.txt
