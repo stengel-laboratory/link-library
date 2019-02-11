@@ -63,7 +63,8 @@ class BagContainer(object):
         self.repl_bio_string = 'd_exp_biol_rep'
         self.repl_tech_string = 'd_exp_tech_rep'
         self.vio_string = 'a_bag_container_violations'
-        self.sum_string = 'c_pg_area_sum_isotopes_org'
+        self.sum_string = 'c_pg_area_sum_isotopes'
+        self.sum_string_non_norm = 'c_pg_area_sum_isotopes_org'
         self.first_iso_string = 'c_pg_max_int_first_iso'
         self.valid_string = "b_peptide_var_valid"
         self.type_string = "b_peptide_type"
@@ -120,9 +121,8 @@ class BagContainer(object):
         self.bio_rep_num = len(self.bio_rep_dict)
         self.tech_rep_list = self.df_orig[self.col_tech_rep].unique()
         self.tech_rep_num = len(self.tech_rep_list)
+        # self.df_orig[self.col_area_sum_total] = np.log2(self.df_orig[self.col_area_sum_total])
         # self.df_orig = self.divide_int_by_reps(self.df_orig)
-
-
 
     def rename_columns(self, df):
         if self.cont_type == self.row_details_string:
@@ -169,6 +169,7 @@ class BagContainer(object):
     def get_group(self, sum_list, mean_list):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[self.col_area_sum_total].sum().reset_index()
+        # df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].mean().reset_index()
         return df
 
@@ -267,7 +268,7 @@ class BagContainer(object):
         def get_loggi(x):
             log2col = pd.Series(np.log2(
                 x[self.col_area_sum_total] / x[self.col_area_sum_total].loc[x[self.col_exp] == ref].values[0]))
-            # print(pd.concat([x, log2col], axis=1))
+            # print(pd.concat([x, log2col], axis=1, sort=True))
             log2col = log2col.rename(self.col_log2ratio)
             df = pd.concat([x, log2col], axis=1)
             kwargs = {self.col_log2ratio_ref: ref}
@@ -436,6 +437,7 @@ class BagContainer(object):
                     pos1 = int(range_list[0])
                     pos2 = int(range_list[1])
                     return pos1 <= pos <= pos2
+
                 domain_all = ""
                 domain_list = []
                 pos_list = df_tmp[self.col_positions].iloc[0]
@@ -445,7 +447,7 @@ class BagContainer(object):
                     pos = pos_list[n]
                     df_dom = self.df_domains[self.df_domains[self.dom_prot] == prot]
                     range_series = df_dom[self.dom_range].str.split('-')
-                    valid_domains = range_series.apply(lambda x: filter_range(x ,pos))
+                    valid_domains = range_series.apply(lambda x: filter_range(x, pos))
                     df_dom = df_dom[valid_domains]
                     # should be a list containing a single value
                     if len(df_dom) == 1:
@@ -463,6 +465,7 @@ class BagContainer(object):
                 # join on - to get domain1-domain2 etc.
                 domain_all = '-'.join(domain_list)
                 return domain_all
+
             df_dom = df.groupby(self.col_uxid).apply(match_domains).reset_index(name=self.col_domain)
             df = pd.merge(df, df_dom, on=self.col_uxid)
         return df
