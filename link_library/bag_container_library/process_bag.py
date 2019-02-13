@@ -112,8 +112,9 @@ class BagContainer(object):
         self.df_new = self.df_new.sort_values(
             [self.col_origin, self.col_exp_original, self.col_link_type, self.col_area_sum_total])
         self.df_orig = self.remove_invalid_ids(self.df_orig)
-        # self.df_orig = self.remove_xtract_violations(self.df_orig)
         self.df_orig = self.remove_lh_violations(self.df_orig)
+        self.df_orig = self.remove_xtract_violations(self.df_orig)
+
         # dict which stores {replicate_area_column: replicate identifier}
         self.bio_rep_dict = {h: h.replace(self.col_area_bio_repl, "") for h in self.df_new.columns if
                              self.col_area_bio_repl in h}
@@ -166,11 +167,11 @@ class BagContainer(object):
         df = df.loc[df[self.col_exp].isin(sel_list)]
         return df
 
-    def get_group(self, sum_list, mean_list):
+    def get_group(self, sum_list, mean_list, group_on):
         df = pd.DataFrame(self.df_orig)
-        df = df.groupby([self.col_level] + sum_list)[self.col_area_sum_total].sum().reset_index()
+        df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
         # df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
-        df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].mean().reset_index()
+        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         return df
 
     def remove_invalid_ids(self, df):
@@ -184,54 +185,46 @@ class BagContainer(object):
         name = set(df[self.col_origin])
         # filtering these two means we get exactly the same results as from the regular bag container
         # removes violations (but no violations are calculated for monolinks)
-        # df = df.loc[df[self.vio_string] == 0]
-        if self.col_level == self.col_uid:
-            df = df.loc[df[self.vio_string] == 0]
-            print("Shape of {0} after removing xTract violations on {1} level: {2}.".format(name, self.col_level,
-                                                                                            df.shape))
-        elif self.col_level == self.col_uxid:
-            # TODO: I assume that one violation for a peptide invalidates the whole link; I am not sure whether this is correct
-            # TODO: it also seems that these links won't even get imputed by xtract which they do right now in this script
-            df = df.groupby([self.col_level, self.col_exp]).filter(lambda x: x[self.vio_string].sum() == 0)
-            print("Shape of {0} after removing xTract violations on {1} level: {2}.".format(name, self.col_level,
-                                                                                            df.shape))
+        df = df.loc[df[self.vio_string] == 0]
+        print("Shape of {0} after removing xTract violations: {1}.".format(name, df.shape))
         return df
 
-    # TODO: right now filters on peptide level; as such is inconsistent with the xtract filtering on uxid level; I am not sure whether this is correct
     def remove_lh_violations(self, df):
+        # xtract filters per uid, experiment and charge state
         def get_is_not_vio(x):
             # absurd default value will always result in violation
             log2 = -10
             log2series = x.groupby([self.col_weight_type])[self.col_area_sum_total].sum()
             if len(log2series) == 2:
                 log2 = np.log2(log2series[1] / log2series[0])
-            if -1 < log2 < 1: return True
+            if -1 < log2 < 1:
+                return True
             return False
 
         name = set(df[self.col_origin])
         print("Shape of {0} before light/heavy log2 filter: {1}.".format(name, df.shape))
-        df = df.groupby([self.col_uid]).filter(get_is_not_vio)
+        df = df.groupby([self.col_uid, self.col_exp, self.col_charge]).filter(get_is_not_vio)
         print("Shape of {0} after light/heavy log2 filter: {1}".format(name, df.shape))
         return df
 
-    def get_stats(self, sum_list, mean_list):
+    def get_stats(self, sum_list, mean_list, log2=True):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[self.col_area_sum_total].sum().reset_index()
         # print(df)
-        df = df.replace(0, np.nan)
-        df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
+        # df = df.replace(0, np.nan)
+        if log2:
+            df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
         # print(pd.pivot_table(df, values=self.col_area_sum_total, index=[self.col_level], columns=sum_list,
         #                      aggfunc=np.sum))
-        df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].agg(
-            {'mean': pd.Series.mean, 'std': pd.Series.std})
+        df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].agg([pd.Series.mean, pd.Series.std])
         # 'iqr': lambda x: x.quantile(0.75)-x.quantile(0.25),  'median': pd.Series.median, 'q25': lambda x: x.quantile(0.25), 'q75': lambda y: y.quantile(0.75)})
+
         df = df.dropna()
-        df = df.reset_index(level=[0, 1])
-        # print(df)
+        df = df.reset_index(level=[0,1])
         return df
 
     def get_pivot(self, sum_list, mean_list, pivot_on):
-        df = self.get_group(sum_list, mean_list)
+        df = self.get_group(sum_list, mean_list, pivot_on)
         df = pd.pivot_table(df, values=pivot_on, index=[self.col_level],
                             columns=mean_list, aggfunc=np.sum)
         return df
@@ -288,6 +281,9 @@ class BagContainer(object):
 
     def get_two_sided_ttest(self, sum_list, mean_list, ref):
         def get_ttest(x):
+            # y = x.groupby(self.col_exp).apply(lambda t: print("A\n", t[self.col_area_sum_total] ,"\nB\n", x[self.col_area_sum_total].loc[
+            #                                                                                      x[
+            #                                                                                          self.col_exp] == ref]))
             y = x.groupby(self.col_exp).apply(lambda t: pd.Series({self.col_pval:
                                                                        weightstats.ttest_ind(t[self.col_area_sum_total],
                                                                                              x[
@@ -312,7 +308,7 @@ class BagContainer(object):
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
             # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
         df = df.replace(0, np.nan)
-        df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
+        # df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
         df = df.groupby([self.col_level]).apply(get_ttest).reset_index()
         df = df.dropna()
         df = df.groupby([self.col_exp]).apply(get_fdr).reset_index(drop=True)
