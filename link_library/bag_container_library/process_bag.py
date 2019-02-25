@@ -3,6 +3,8 @@ import numpy as np
 import copy
 from statsmodels.sandbox.stats import multicomp
 from statsmodels.stats import weightstats
+from scipy.stats import bartlett
+from scipy.stats import levene
 from scipy.stats import zscore
 
 
@@ -12,7 +14,7 @@ from scipy.stats import zscore
 
 class BagContainer(object):
 
-    def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, df_domains=None):
+    def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, df_domains=None, norm_reps=False):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
@@ -49,6 +51,7 @@ class BagContainer(object):
             self.col_domain = None
         self.dom_prot = 'protein'
         self.dom_range = 'range'
+        self.bag_container_index_string = 'a_bag_container_db_index'
         self.row_monolink_string = 'monolink'
         self.row_xlink_string = 'xlink'
         self.row_light_string = 'light'
@@ -64,8 +67,9 @@ class BagContainer(object):
         self.repl_tech_string = 'd_exp_tech_rep'
         self.vio_string = 'a_bag_container_violations'
         self.sum_string = 'c_pg_area_sum_isotopes'
-        self.sum_string_non_norm = 'c_pg_area_sum_isotopes_org'
+        self.sum_string_orig = 'c_pg_area_sum_isotopes_org'
         self.first_iso_string = 'c_pg_max_int_first_iso'
+        self.first_iso_string_orig = 'c_pg_max_int_first_iso_org'
         self.valid_string = "b_peptide_var_valid"
         self.type_string = "b_peptide_type"
         self.charge_string = "b_peptide_z"
@@ -113,8 +117,10 @@ class BagContainer(object):
             [self.col_origin, self.col_exp_original, self.col_link_type, self.col_area_sum_total])
         self.df_orig = self.remove_invalid_ids(self.df_orig)
         self.df_orig = self.remove_lh_violations(self.df_orig)
-        self.df_orig = self.remove_xtract_violations(self.df_orig)
-
+        # self.df_orig = self.remove_xtract_violations(self.df_orig)
+        # self.df_orig = self.normalize_experiments(self.df_orig)
+        if norm_reps:
+            self.df_orig = self.normalize_replicates(self.df_orig)
         # dict which stores {replicate_area_column: replicate identifier}
         self.bio_rep_dict = {h: h.replace(self.col_area_bio_repl, "") for h in self.df_new.columns if
                              self.col_area_bio_repl in h}
@@ -122,8 +128,58 @@ class BagContainer(object):
         self.bio_rep_num = len(self.bio_rep_dict)
         self.tech_rep_list = self.df_orig[self.col_tech_rep].unique()
         self.tech_rep_num = len(self.tech_rep_list)
+        self.print_info(self.df_orig)
         # self.df_orig[self.col_area_sum_total] = np.log2(self.df_orig[self.col_area_sum_total])
         # self.df_orig = self.divide_int_by_reps(self.df_orig)
+
+    def print_info(self, df):
+        print("The following experiments and number of replicates were found in the bag container")
+        print(df.groupby(self.col_exp)[self.col_bio_rep, self.col_tech_rep].nunique())
+
+    # normalizes inter-experiment abundance in the xTract way: use one experiment as the reference
+    # calculate the mean intensities and their ratio compared to the reference
+    # divide/multiply all experiments by these factors
+    def normalize_experiments(self, df):
+        norm_string = 'norm_factor'
+        norm_string_inverted = norm_string + '_inverted'
+        # sum_list = [self.col_level, self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_weight_type, self.col_charge]
+        mean_list = [self.col_exp]
+        # df_sum = df.groupby(sum_list)[self.col_area_sum_total].sum().reset_index()
+        # df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
+        df_norm = df.groupby(mean_list)[self.col_area_sum_total].mean().reset_index(name=norm_string)
+        # df_norm[self.col_area_sum_total] = np.log2(df_norm[self.col_area_sum_total])
+        exp_max = df_norm[norm_string].max()
+        df_norm[norm_string] /= exp_max
+        df_norm[norm_string_inverted] = df_norm[norm_string]**-1
+        print("Experiment abundance normalization found the following normalization factors:")
+        print(df_norm)
+        for exp in df_norm[self.col_exp]:
+            df.loc[df[self.col_exp] == exp,[self.col_area_sum_total]] /= df_norm.loc[df_norm[self.col_exp] == exp,[norm_string]].values[0]
+        return df
+
+    def normalize_replicates(self, df):
+        replicate_mean_string = self.col_area_sum_total + '_rep_mean'
+        exp_mean_string = self.col_area_sum_total + '_exp_mean'
+        rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
+        mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
+        df[self.col_area_sum_total + '_before_rep_norm'] = df[self.col_area_sum_total]
+
+        df[replicate_mean_string] = df.groupby(mean_list)[self.col_area_sum_total].transform(np.mean)
+        df[exp_mean_string] = df.groupby([self.col_exp])[replicate_mean_string].transform(np.mean)
+
+        df_mean_rep = df.groupby(mean_list)[self.col_area_sum_total].mean()
+        print("Mean replicate areas before normalization: ")
+        print(df_mean_rep)
+        df_mean_exp = df.groupby([self.col_exp])[self.col_area_sum_total].mean()
+        print("Mean experiment areas: ")
+        print(df_mean_exp)
+
+        df[rep_exp_ratio_string] = df[replicate_mean_string] / df[exp_mean_string]
+        df[self.col_area_sum_total] = df[self.col_area_sum_total] / df[rep_exp_ratio_string]
+        # print(df.groupby([self.col_exp, self.col_bio_rep, self.col_tech_rep]).apply(lambda x:print(x[[self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_uid, self.col_area_sum_total, self.col_area_sum_total + '_mean', self.col_area_sum_total + '_exp_mean', self.col_area_sum_total + '_diff', self.col_area_sum_total + '_norm']])))
+        print("Mean replicate areas after normalization: ")
+        print(df.groupby(mean_list)[self.col_area_sum_total].mean())
+        return df
 
     def rename_columns(self, df):
         if self.cont_type == self.row_details_string:
@@ -210,17 +266,24 @@ class BagContainer(object):
     def get_stats(self, sum_list, mean_list, log2=True):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[self.col_area_sum_total].sum().reset_index()
-        # print(df)
-        # df = df.replace(0, np.nan)
         if log2:
             df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
+        # print(df)
+        # df = df.replace(0, np.nan)
+
         # print(pd.pivot_table(df, values=self.col_area_sum_total, index=[self.col_level], columns=sum_list,
         #                      aggfunc=np.sum))
+
         df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].agg([pd.Series.mean, pd.Series.std])
+        df['snr'] = df['mean']/df['std']
         # 'iqr': lambda x: x.quantile(0.75)-x.quantile(0.25),  'median': pd.Series.median, 'q25': lambda x: x.quantile(0.25), 'q75': lambda y: y.quantile(0.75)})
 
         df = df.dropna()
-        df = df.reset_index(level=[0,1])
+        len_index = len(df.index.names)
+        levels = [i for i in range(len_index)]
+        df = df.reset_index(level=levels)
+        print("DF Stats mean")
+        print(df.groupby(self.col_exp).mean())
         return df
 
     def get_pivot(self, sum_list, mean_list, pivot_on):
@@ -276,21 +339,36 @@ class BagContainer(object):
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
             # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
         df = df.groupby([self.col_level]).apply(get_loggi).reset_index(drop=True)
+        df = df.drop(columns=[self.col_area_sum_total]) # makes no sense to return this column for a single experiment
         df = df.loc[df[self.col_exp] != ref]
         return df
 
     def get_two_sided_ttest(self, sum_list, mean_list, ref):
+        # function takes a dataframe grouped by ids and calculates pvalues against a reference
         def get_ttest(x):
+            # takes two group values, determines whether their variances are equal (via levene test)
+            # and computes and independent t-test with either pooled (Student) or non-pooled (Welsh) variances
+            def compare_variances(vals_exp, vals_ref):
+                if not np.isnan(np.var(vals_exp)) and not np.isnan(np.var(vals_ref)):
+                    eq_var_pval = levene(vals_exp, vals_ref)[1]
+                    if eq_var_pval > 0.01:
+                        var ='pooled'
+                    else:
+                        var = 'unequal'
+                        # print("unequal_ref\n", vals_ref,)
+                        # print("unequal_exp\n", vals_exp)
+                        # print("unequal_var\n", np.var(vals_ref), np.var(vals_exp))
+                    return weightstats.ttest_ind(vals_exp, vals_ref, usevar=var)[1]
+                else:
+                    return np.nan
             # y = x.groupby(self.col_exp).apply(lambda t: print("A\n", t[self.col_area_sum_total] ,"\nB\n", x[self.col_area_sum_total].loc[
             #                                                                                      x[
             #                                                                                          self.col_exp] == ref]))
-            y = x.groupby(self.col_exp).apply(lambda t: pd.Series({self.col_pval:
-                                                                       weightstats.ttest_ind(t[self.col_area_sum_total],
-                                                                                             x[
-                                                                                                 self.col_area_sum_total].loc[
-                                                                                                 x[
-                                                                                                     self.col_exp] == ref],
-                                                                                             usevar='pooled')[1]}))
+            # x_ref = x[x[self.col_exp == ref]]
+            # x_exp = x[x[self.col_exp != ref]]
+            y = x.groupby(self.col_exp).apply(lambda t: pd.Series({self.col_pval:compare_variances(t[self.col_area_sum_total],
+                                                                                             x[self.col_area_sum_total].loc[
+                                                                                                 (x[self.col_exp] == ref)])}))
             return y
 
         def get_fdr(x):
@@ -490,3 +568,66 @@ class BagContainer(object):
             df[self.col_area_sum_total] = \
                 df[self.col_area_sum_total].apply(lambda x: x / self.bio_rep_num * self.tech_rep_num)
         return df
+
+
+    def get_matching_monos(self):
+        import link_library as ll
+        df = self.df_orig.copy()
+        print(df.groupby(self.col_link_type)[self.col_uxid].nunique())
+        pos_string = "Positions"
+        prot_string = "Proteins"
+        link_group_string = "link_group"
+        df_tmp = df[self.col_uxid].str.split(':').apply(ll.get_prot_name_and_link_pos)
+        # direct assignment does not work as it takes just the column headers as values
+        df[pos_string], df[prot_string] = df_tmp[0], df_tmp[1]
+
+        def renumber_groups(x):
+            if not hasattr(renumber_groups, "counter"):
+                renumber_groups.counter = 0  # it doesn't exist yet, so initialize it
+            x[link_group_string] = renumber_groups.counter
+            renumber_groups.counter += 1
+            return x
+
+        def filter_link_groups(df, no_monos=2):
+            df = df.groupby(link_group_string).filter(
+                lambda x: x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)
+            df = df.groupby(link_group_string).filter(
+                lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() >= no_monos)
+            df = df.reset_index(drop=True)
+            df = df.groupby(link_group_string).apply(renumber_groups)
+            return df
+
+        def find_associated_link(x, df_monos):
+            def is_equal(a,b):  # given two links a and b check whether they link the same protein and position
+                prots_a = (a[prot_string].iloc[0])
+                pos_a = (a[pos_string].iloc[0])
+                prot_pos_a = set(zip(prots_a, pos_a))  # put prot name and pos into tuple for easy set intersection
+                prots_b = (b[prot_string].iloc[0])
+                pos_b = (b[pos_string].iloc[0])
+                prot_pos_b = set(zip(prots_b, pos_b))
+                link_intersect = prot_pos_a & prot_pos_b  # get intersecting links
+                if len(link_intersect) > 0:
+                    return True
+                return False
+
+            tmp = df_monos.groupby(self.col_uxid).filter(lambda y: is_equal(x, y))
+
+            if len(tmp) > 0:
+                tmp[link_group_string] = x[link_group_string].iloc[0]
+
+                # x[associated_link_string] = [tmp[uid_string].values]  # assignment is buggy and not needed anyway
+                x = pd.concat([x,tmp], sort=True)
+
+            return x
+
+        df_xlinks = df[df[self.col_link_type] == self.row_xlink_string].copy()  # using a copy since I set values in the next line
+        df_xlinks = df_xlinks.groupby(self.col_uxid).apply(renumber_groups)
+        df_monos = df[df[self.col_link_type] == self.row_monolink_string]
+        df_new = df_xlinks.groupby(self.col_uxid).apply(lambda x: find_associated_link(x, df_monos)).reset_index(drop=True)
+        num_mono1 = df_new.groupby(link_group_string).filter(lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() >= 1 and x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[link_group_string].nunique()
+        num_mono2 = df_new.groupby(link_group_string).filter(lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() == 2 and x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[link_group_string].nunique()
+        num_total = df_new[link_group_string].nunique()
+        print("Link groups with 1 monolink: {0} ({1:.0%})".format(num_mono1, num_mono1/num_total))
+        print("Link groups with 2 monolinks: {0} ({1:.0%})".format(num_mono2, num_mono2/num_total))
+        df_new = filter_link_groups(df_new)
+        return df_new
