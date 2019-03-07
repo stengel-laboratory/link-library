@@ -55,7 +55,9 @@ class PlotMaster(object):
         self.plot_fig(name='cluster', extra="z_col", g=cg, dpi=300)
 
     def plot_bar(self):
-        df = pd.DataFrame(self.bag_cont.df_new)
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep]
+        mean_list = [self.bag_cont.col_exp]
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total)
         # filter zero ms1 intensities
         df = df.loc[df[self.bag_cont.col_area_sum_total] > 0]
         # filter ids not found in at least two experiments (as each id exists only once for each experiment)
@@ -117,9 +119,9 @@ class PlotMaster(object):
         self.plot_fig(name="log2ratio", g=fg)
 
     def plot_link_overview(self):
-        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep]
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type] #self.bag_cont.col_tech_rep
         mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep]
-        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total)
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
         df['mean'] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp])[
             self.bag_cont.col_area_sum_total].transform('mean')
         df['std'] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp])[
@@ -140,10 +142,9 @@ class PlotMaster(object):
             df = df.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp, self.bag_cont.col_level])
         else:
             df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
-        print(df.head(1))
         fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False, hue=self.bag_cont.col_domain, sharex=False)
-        # for ax in fg.axes:
-        #     ax.set_yscale('log', basey=2)
+        for ax in fg.axes:
+            ax.set_yscale('log', basey=2)
         # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
         #                  col=self.bag_cont.col_level, kind='line', col_wrap=5, ci='sd',
         #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
@@ -151,9 +152,9 @@ class PlotMaster(object):
 
     def plot_domain_overview(self):
         if self.bag_cont.col_domain:
-            sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep]
+            sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type] #self.bag_cont.col_tech_rep
             mean_list = [self.bag_cont.col_exp]
-            df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total)
+            df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
             # df[self.bag_cont.col_area_sum_total] = df[self.bag_cont.col_area_sum_total].map(np.log2)
             df = self.bag_cont.get_prot_name_and_link_pos(df)
             # this will count all unique links per domain
@@ -165,18 +166,18 @@ class PlotMaster(object):
             # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
             #                  col=self.bag_cont.col_domain, kind='line', col_wrap=5, ci='sd',
             #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
-            # df[self.bag_cont.col_exp] = pd.Categorical(
-            #     df[self.bag_cont.col_exp],
-            #     categories=['T5', 'T3', 'T2', 'T1', 'T6'],
-            #     ordered=True
-            # )
-            df = df.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp])
+            df[self.bag_cont.col_exp] = pd.Categorical(
+                df[self.bag_cont.col_exp],
+                categories=sorted(df[self.bag_cont.col_exp].unique()),
+                ordered=True
+            )
+            df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_domain])
             fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
                              col=self.bag_cont.col_domain, kind='point', col_wrap=5, ci='sd',
                              hue=self.bag_cont.col_domain, sharey=False, sharex=False)
             # for ax in fg.axes:
             #     ax.set_yscale('log', basey=2)
-            df['mean'] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_level, self.bag_cont.col_exp])[self.bag_cont.col_area_sum_total].transform('mean')
+            df['mean'] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[self.bag_cont.col_area_sum_total].transform('mean')
             df['std'] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[
                 self.bag_cont.col_area_sum_total].transform('std')
             # df.groupby([self.bag_cont.col_domain, self.bag_cont.col_level]).apply(lambda x: print((x.select_dtypes(include=[np.number]))))
@@ -211,7 +212,9 @@ class PlotMaster(object):
         self.plot_fig(name="dilution_series_log2ratio")
 
     def plot_scatter(self):
-        df = pd.DataFrame(self.bag_cont.df_new)
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_link_type]
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total)
         exp_list = sorted(list(set(df[self.bag_cont.col_exp])))
         if len(exp_list) > 2:
             print("More than two experiments found. Please select which ones to plot.")
@@ -245,7 +248,7 @@ class PlotMaster(object):
                                          df[self.bag_cont.col_exp+'_x'][0]),  #KK_26S_merged_final.analyzer.quant
                ylabel="{0} ({1})".format(self.bag_cont.col_area_sum_total,
                                          df[self.bag_cont.col_exp+'_y'][0]),
-               xscale='log', yscale='log', title="{0} col_level".format(self.bag_cont.level),
+               xscale='log', yscale='log', title="{0} col_level".format(self.bag_cont.col_level),
                xlim=min_min,ylim=min_min)
         # draw horizontal line for all possible plots
         for row in fg.axes:
@@ -254,10 +257,11 @@ class PlotMaster(object):
         self.plot_fig(name="scatter")
 
     def plot_light_heavy_scatter(self):
-        df = pd.DataFrame(self.bag_cont.df_new)
-        # df_new = df_new[df_new[col_link_type] == row_xlink_string]
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type, self.bag_cont.col_origin]
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_link_type, self.bag_cont.col_origin]
+        df = self.bag_cont.get_group(sum_list, mean_list, [self.bag_cont.col_area_sum_total, self.bag_cont.col_area_sum_light, self.bag_cont.col_area_sum_heavy])
         fg = sns.lmplot(x=self.bag_cont.col_area_sum_light, y=self.bag_cont.col_area_sum_heavy, hue=self.bag_cont.col_link_type,
-                        col=self.bag_cont.col_exp_original, row=self.bag_cont.col_origin, data=df, fit_reg=False, sharex=True, sharey=True, robust=True, ci=None, legend_out=False, )
+                        col=self.bag_cont.col_exp, row=self.bag_cont.col_origin, data=df, fit_reg=False, sharex=True, sharey=True, robust=True, ci=None, legend_out=False, )
         df_new = df[(df[self.bag_cont.col_area_sum_heavy] > 0) & (df[self.bag_cont.col_area_sum_light] > 0)]
         min_val = np.min(df_new[[self.bag_cont.col_area_sum_light, self.bag_cont.col_area_sum_heavy]].min())
         min_val -= min_val/2
@@ -273,28 +277,30 @@ class PlotMaster(object):
         self.plot_fig(name='light_heavy_scatter')
 
     def plot_bio_rep_scatter(self):
-        df = pd.DataFrame(self.bag_cont.df_new)
-        bio_rep_dict = self.bag_cont.bio_rep_dict
-        # df_new = df_new[df_new[col_link_type] == row_xlink_string]
-        for n_outer, bio_rep_outer in enumerate(bio_rep_dict.keys()):
-            for n_inner, bio_rep_inner in enumerate(bio_rep_dict.keys()):
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_link_type]
+        df = self.bag_cont.get_group(sum_list, mean_list, [self.bag_cont.col_area_sum_total])
+        for n_outer in self.bag_cont.bio_rep_list:
+            for n_inner in self.bag_cont.bio_rep_list:
                 if n_inner > n_outer:
-                    fg = sns.lmplot(x=bio_rep_outer, y=bio_rep_inner, #hue=col_link_type,
-                                    row=self.bag_cont.col_exp_original, data=df, fit_reg=False, sharex=True, sharey=True,
-                                    ci=None, legend_out=False, hue=self.bag_cont.col_link_type)
-                    df_new = df[df[self.bag_cont.col_area_sum_total] > 0]
-                    min_val = np.min(df_new[[self.bag_cont.col_area_sum_total]].min())
-                    min_val -= min_val/2
-                    max_val = np.max(df_new[[self.bag_cont.col_area_sum_total]].max())
-                    max_val += max_val/2
-                    # note that not setting x,ylim to auto (the default) leads to strange scaling bugs with a log scale
-                    # therefore using the same limits for all subplots; also makes comparisons easier
-                    fg.set(xscale='log', yscale='log',xlim=(min_val,max_val), ylim=(min_val,max_val))
+                    df_inner = df[df[self.bag_cont.col_bio_rep] == n_inner]
+                    df_outer = df[df[self.bag_cont.col_bio_rep] == n_outer]
+                    rep_inner = '{0}_rep_{1}'.format(self.bag_cont.col_area_sum_total, n_inner)
+                    rep_outer = '{0}_rep_{1}'.format(self.bag_cont.col_area_sum_total, n_outer)
+                    df_inner = df_inner.rename(index=str, columns={self.bag_cont.col_area_sum_total: rep_inner})
+                    df_outer = df_outer.rename(index=str, columns={self.bag_cont.col_area_sum_total: rep_outer})
+                    df_inner = df_inner.drop(columns=[self.bag_cont.col_bio_rep])
+                    df_outer = df_outer.drop(columns=[self.bag_cont.col_bio_rep])
+                    df_f = pd.merge(df_outer, df_inner, on=[self.bag_cont.col_level, self.bag_cont.col_exp, self.bag_cont.col_link_type], how='outer')
+                    fg = sns.lmplot(x=rep_outer, y=rep_inner, hue=self.bag_cont.col_link_type,
+                                    row=self.bag_cont.col_exp, data=df_f, fit_reg=False, sharex=True, sharey=True,
+                                    ci=None, legend_out=False)
+                    fg.set(xscale='log', yscale='log')
                     # draw horizontal line for all possible plots
                     for row in fg.axes:
                         for ax in row:
                             ax.plot(ax.get_xlim(), ax.get_ylim(), ls="--", c=".3")
-                    self.plot_fig(name='rep', extra="{0}_vs_{1}".format(bio_rep_dict[bio_rep_outer], bio_rep_dict[bio_rep_inner]))
+                    self.plot_fig(name='rep', extra="{0}_vs_{1}".format(n_outer, n_inner))
 
     def plot_mono_vs_xlink_quant(self):
         link_group_string = "link_group"
@@ -342,6 +348,33 @@ class PlotMaster(object):
             for ax in row:
                 ax.set_xticklabels(ax.get_xticklabels(), rotation=90, ha='right', size=9)
             self.plot_fig(name='rep_bar',extra="{0}".format(row))
+
+    def plot_dist_vs_quant(self):
+        sum_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_dist, self.bag_cont.col_weight_type]
+        mean_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_dist]
+        # df = self.bag_cont.get_group(sum_list, mean_list, [self.bag_cont.col_area_sum_total])
+        df = self.bag_cont.df_orig.copy()
+        df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
+            self.bag_cont.col_area_sum_total].transform('sum')
+        df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[
+            self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
+        df[self.bag_cont.col_area_sum_total + '_std'] = df.groupby(mean_list)[
+            self.bag_cont.col_area_sum_total + '_sum'].transform('std')
+        df[self.bag_cont.col_area_sum_total + '_min'] = df.groupby(mean_list)[
+            self.bag_cont.col_area_sum_total + '_sum'].transform('min')
+        df[self.bag_cont.col_area_sum_total + '_max'] = df.groupby(mean_list)[
+            self.bag_cont.col_area_sum_total + '_sum'].transform('max')
+        df[self.bag_cont.col_area_sum_total + '_z'] = (df[self.bag_cont.col_area_sum_total]- df[self.bag_cont.col_area_sum_total + '_mean'])/df[self.bag_cont.col_area_sum_total + '_std']
+        # df[self.col_area_rep] = df.groupby(mean_list)[self.col_area_sum_total].transform(np.mean)
+        # print(df)
+        df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[self.bag_cont.col_dist].count() > 0)
+
+        # df[self.bag_cont.col_area_sum_total] = np.log2(df[self.bag_cont.col_area_sum_total])
+        # sns.set(font_scale=0.5)
+        df = df[[self.bag_cont.col_dist,self.bag_cont.col_area_sum_total, self.bag_cont.col_area_sum_total + '_sum', self.bag_cont.col_area_sum_total + '_mean', self.bag_cont.col_area_sum_total + '_min', self.bag_cont.col_area_sum_total + '_max', self.bag_cont.col_area_sum_total + '_z']]
+        fg =sns.heatmap(df.corr(), annot=True, fmt=".2f", xticklabels=True, yticklabels=True)
+        # fg = sns.lmplot(data=df, x=self.bag_cont.col_dist, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
+        self.plot_fig("dist_vs_quant")
 
 
     def plot_fig(self, name, extra='', g = None, **kwargs):
