@@ -51,14 +51,19 @@ def label_point(x, y, val, ax):
         ax.text(point['x'], point['y']+0.15, str(point['val']), fontsize=14, fontweight=600)
 
 def map_point(x,y, annot, **kwargs):
-    # x = x.unique()
-    # print(x)
-    # print(y)
-    y_anno_dict = {y.values[n]:annot.values[n] for n in range(len((y)))}
-    print(y_anno_dict)
-    for i, y_val in enumerate(y_anno_dict.keys()):
+    # not working yet; the experiments don't match with the order in the plot
+    zip_y_annotate = list(dict.fromkeys(zip(x,y,annot)))
+    # zip_y_annotate = sorted(zip_y_annotate)
+    print(zip_y_annotate)
+    y_anno_dict = dict((y, annot) for x, y, annot in zip_y_annotate)
+    # print(len(zip_y_annotate))
+    # print(len(set(zip_y_annotate)))
+    # exit()
+    # y_anno_dict = {y.values[n]:annot.values[n] for n in range(len((y)))}
+    # print(y_anno_dict)
+    for x, y, annot in zip_y_annotate:
         # print(str(annot.values[i]), x.values[i], y.values[i])
-        plt.annotate(str(y_anno_dict[y_val]), xy=(i, y_val), fontsize=8,
+        plt.annotate(str(annot), xy=(x, y), fontsize=8,
                     color=kwargs.get("color", "k"),
                     bbox=dict(pad=.9, alpha=1, fc='w', color='none'),
                     va='center', ha='center', weight='bold')
