@@ -3,7 +3,6 @@ import numpy as np
 import copy
 from statsmodels.sandbox.stats import multicomp
 from statsmodels.stats import weightstats
-from scipy.stats import bartlett
 from scipy.stats import levene
 from scipy.stats import zscore
 
@@ -14,7 +13,8 @@ from scipy.stats import zscore
 
 class BagContainer(object):
 
-    def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, df_domains=None, norm_reps=False):
+    def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, norm_exps='yes', norm_reps=False,
+                 df_domains=None, df_dist=None, whitelist=None):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
@@ -27,11 +27,11 @@ class BagContainer(object):
         self.col_bag_type = 'bag_container_type'
         self.col_area_sum_total = 'ms1_area_sum'
         self.col_area_sum_norm_total = self.col_area_sum_total + '_norm'
-        self.col_area_sum_light = 'ms1_area_sum_light'
-        self.col_area_sum_heavy = 'ms1_area_sum_heavy'
-        self.col_area_bio_repl = 'ms1_area_sum_bio_rep_'
-        self.col_var = 'ms1_area_variance'
-        self.col_std = 'ms1_area_std'
+        self.col_area_sum_light = self.col_area_sum_total + '_light'
+        self.col_area_sum_heavy = self.col_area_sum_total + '_heavy'
+        self.col_area_rep = self.col_area_sum_total + '_rep_mean'
+        self.col_area_exp = self.col_area_sum_total + '_exp_mean'
+        self.rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
         self.col_index = 'index'
         self.col_log2ratio = 'log2ratio'
         self.col_log2ratio_ref = 'log2ratio_ref_exp'
@@ -49,8 +49,13 @@ class BagContainer(object):
             self.col_domain = 'domain'
         else:
             self.col_domain = None
+        if df_dist is not None:
+            self.col_dist = 'distance'
+        else:
+            self.col_dist = None
         self.dom_prot = 'protein'
         self.dom_range = 'range'
+        self.norm_exp = norm_exps
         self.bag_container_index_string = 'a_bag_container_db_index'
         self.row_monolink_string = 'monolink'
         self.row_xlink_string = 'xlink'
@@ -92,16 +97,13 @@ class BagContainer(object):
             exit(1)
         self.type = 'BagContainer_{0}'.format(level)
         # df orig should contain the original columns as given by xquest/xtract (just renamed and a few additions)
-        # df new contains (id | ms1 sum | ms1 sum rep1| ...) columns; id corresponds to the bag_cont col_level (uid/uxid)
         self.df_orig = pd.DataFrame()
-        self.df_new = pd.DataFrame()
         self.df_domains = df_domains
         for df in df_list:
             df = self.prepare_df(df)
             if self.filter:
                 df = self.filter_link_type(df)
             self.df_orig = self.df_orig.append(copy.deepcopy(self.rename_columns(df)))
-            self.df_new = self.df_new.append(self.get_sum_ms1_intensities_df(copy.deepcopy(df)))
         if sel_exp:
             exp_dict = {no: exp for no, exp in enumerate(sorted(self.df_orig[self.col_exp].unique()))}
             print("Please select the experiments you want to exclude")
@@ -112,20 +114,23 @@ class BagContainer(object):
             sel = [exp_dict[s] for s in exp_dict.keys() if s not in sel]
             print("The following experiments were selected: {0}".format(sel))
             self.df_orig = self.filter_exp(self.df_orig, sel)
-            self.df_new = self.filter_exp(self.df_new, sel)
-        self.df_new = self.df_new.sort_values(
-            [self.col_origin, self.col_exp_original, self.col_link_type, self.col_area_sum_total])
+
         self.df_orig = self.remove_invalid_ids(self.df_orig)
+        self.df_orig = self.compute_lh_log2ratio(self.df_orig)
         self.df_orig = self.remove_lh_violations(self.df_orig)
         # self.df_orig = self.remove_xtract_violations(self.df_orig)
-        # self.df_orig = self.normalize_experiments(self.df_orig)
+        if whitelist is not None:
+            self.df_orig = self.filter_linky_by_whitelist(self.df_orig, whitelist)
+        self.df_orig = self.compute_rep_and_exp_mean(self.df_orig)
         if norm_reps:
             self.df_orig = self.normalize_replicates(self.df_orig)
-        # dict which stores {replicate_area_column: replicate identifier}
-        self.bio_rep_dict = {h: h.replace(self.col_area_bio_repl, "") for h in self.df_new.columns if
-                             self.col_area_bio_repl in h}
+        if norm_exps == 'yes':
+            self.df_orig = self.normalize_experiments(self.df_orig)
+        if self.col_dist:
+            self.df_orig = self.add_link_distances(self.df_orig, df_dist)
+        self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
-        self.bio_rep_num = len(self.bio_rep_dict)
+        self.bio_rep_num = len(self.bio_rep_list)
         self.tech_rep_list = self.df_orig[self.col_tech_rep].unique()
         self.tech_rep_num = len(self.tech_rep_list)
         self.print_info(self.df_orig)
@@ -134,7 +139,7 @@ class BagContainer(object):
 
     def print_info(self, df):
         print("The following experiments and number of replicates were found in the bag container")
-        print(df.groupby(self.col_exp)[self.col_bio_rep, self.col_tech_rep].nunique())
+        print(df.groupby(self.col_exp)[self.col_bio_rep, self.col_tech_rep].nunique(), '\n')
 
     # normalizes inter-experiment abundance in the xTract way: use one experiment as the reference
     # calculate the mean intensities and their ratio compared to the reference
@@ -142,53 +147,84 @@ class BagContainer(object):
     def normalize_experiments(self, df):
         norm_string = 'norm_factor'
         norm_string_inverted = norm_string + '_inverted'
-        # sum_list = [self.col_level, self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_weight_type, self.col_charge]
+        # sum_list = [self.bag_container_index_string, self.col_exp, self.col_uid]
         mean_list = [self.col_exp]
         # df_sum = df.groupby(sum_list)[self.col_area_sum_total].sum().reset_index()
         # df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
         df_norm = df.groupby(mean_list)[self.col_area_sum_total].mean().reset_index(name=norm_string)
         # df_norm[self.col_area_sum_total] = np.log2(df_norm[self.col_area_sum_total])
-        exp_max = df_norm[norm_string].max()
-        df_norm[norm_string] /= exp_max
+        # reference factor to normalize to
+        # as an alternative to the mean one could also use a reference experiment (like xTract does) or the max() or the min()
+        exp_ref_factor = df_norm[norm_string].mean()
+        df_norm[norm_string] /= exp_ref_factor
         df_norm[norm_string_inverted] = df_norm[norm_string]**-1
-        print("Experiment abundance normalization found the following normalization factors:")
-        print(df_norm)
+        print("\nExperiment abundance normalization found the following normalization factors:")
+        print(df_norm, '\n')
         for exp in df_norm[self.col_exp]:
             df.loc[df[self.col_exp] == exp,[self.col_area_sum_total]] /= df_norm.loc[df_norm[self.col_exp] == exp,[norm_string]].values[0]
+        print("Experiment areas after normalization:")
+        print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
+        return df
+
+    def compute_rep_and_exp_mean(self, df):
+        mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
+
+        df[self.col_area_rep] = df.groupby(mean_list)[self.col_area_sum_total].transform(np.mean)
+        df[self.col_area_exp] = df.groupby([self.col_exp])[self.col_area_rep].transform(np.mean)
+
         return df
 
     def normalize_replicates(self, df):
-        replicate_mean_string = self.col_area_sum_total + '_rep_mean'
-        exp_mean_string = self.col_area_sum_total + '_exp_mean'
         rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
         mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
         df[self.col_area_sum_total + '_before_rep_norm'] = df[self.col_area_sum_total]
 
-        df[replicate_mean_string] = df.groupby(mean_list)[self.col_area_sum_total].transform(np.mean)
-        df[exp_mean_string] = df.groupby([self.col_exp])[replicate_mean_string].transform(np.mean)
-
         df_mean_rep = df.groupby(mean_list)[self.col_area_sum_total].mean()
         print("Mean replicate areas before normalization: ")
-        print(df_mean_rep)
+        print(df_mean_rep, '\n')
         df_mean_exp = df.groupby([self.col_exp])[self.col_area_sum_total].mean()
         print("Mean experiment areas: ")
-        print(df_mean_exp)
+        print(df_mean_exp, '\n')
 
-        df[rep_exp_ratio_string] = df[replicate_mean_string] / df[exp_mean_string]
+        df[rep_exp_ratio_string] = df[self.col_area_rep] / df[self.col_area_exp]
         df[self.col_area_sum_total] = df[self.col_area_sum_total] / df[rep_exp_ratio_string]
         # print(df.groupby([self.col_exp, self.col_bio_rep, self.col_tech_rep]).apply(lambda x:print(x[[self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_uid, self.col_area_sum_total, self.col_area_sum_total + '_mean', self.col_area_sum_total + '_exp_mean', self.col_area_sum_total + '_diff', self.col_area_sum_total + '_norm']])))
         print("Mean replicate areas after normalization: ")
-        print(df.groupby(mean_list)[self.col_area_sum_total].mean())
+        print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
         return df
 
     def rename_columns(self, df):
-        if self.cont_type == self.row_details_string:
-            df = df.rename(index=str, columns={self.exp_string: self.col_exp, self.uid_string: self.col_uid,
-                                               self.uxid_string: self.col_uxid,
-                                               self.sum_string: self.col_area_sum_total,
-                                               self.repl_bio_string: self.col_bio_rep,
-                                               self.repl_tech_string: self.col_tech_rep,
-                                               self.charge_string: self.col_charge, })
+        # the ms1 area string depends on the kind of the experiment normalization
+        ms1_string = ""
+        if self.norm_exp == 'yes' or self.norm_exp == 'no':
+            # use the non_normalized ms1 area if it exists
+            # this is the case if xTract's normalization was used
+            if self.sum_string_orig in df:
+                ms1_string = self.sum_string_orig
+                print("Experiment Normalization: Found column containing non-normalized values")
+            # if the string does not exist we assume the default column is not normalized
+            else:
+                ms1_string = self.sum_string
+                print("Experiment Normalization: Values have not been normalized by xTract. Using default column")
+        elif self.norm_exp == 'xt':
+            # if we're using xTract's normalization the sum_orig must exist we don't want to use it
+            if self.sum_string_orig in df:
+                ms1_string = self.sum_string
+                print("Experiment Normalization: Using values calculated by xTract")
+            # if the string does not exist we assume something is not right
+            else:
+                print("ERROR: xTract's experiment normalization was specified but the normalized values are not in the bag container. Exiting")
+                exit(1)
+        else:
+            print("ERROR: Unknown normalization method specified: {0}. Exiting".format(self.norm_exp))
+            exit(1)
+
+        df = df.rename(index=str, columns={self.exp_string: self.col_exp, self.uid_string: self.col_uid,
+                                           self.uxid_string: self.col_uxid,
+                                           ms1_string: self.col_area_sum_total,
+                                           self.repl_bio_string: self.col_bio_rep,
+                                           self.repl_tech_string: self.col_tech_rep,
+                                           self.charge_string: self.col_charge, })
         return df
 
     # create new columns and modify others to facilitate working with the df
@@ -199,17 +235,16 @@ class BagContainer(object):
         df[self.col_origin] = df.name
         # df_abs_pos = df[self.uxid_string].str.split(':', expand=True)
         # let's remove the weight, link type and charge from uid string; so we have the same uids for both container types
-        if self.cont_type == self.row_details_string:
-            # using regex to match either :heavy or :light and all the following string (.*)
-            df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}).*"
-                                                                  .format(self.row_light_string, self.row_heavy_string),
-                                                                  "")
-            # doing the same for the link type string
-            df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}).*"
-                                                                  .format(self.row_monolink_string,
-                                                                          self.row_xlink_string), "")
-            # and again for the charge string
-            df[self.uid_string] = df[self.uid_string].str.replace(":({0}).*".format("::*"), "")
+        # using regex to match either :heavy or :light and all the following string (.*)
+        df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}).*"
+                                                              .format(self.row_light_string, self.row_heavy_string),
+                                                              "")
+        # doing the same for the link type string
+        df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}).*"
+                                                              .format(self.row_monolink_string,
+                                                                      self.row_xlink_string), "")
+        # and again for the charge string
+        df[self.uid_string] = df[self.uid_string].str.replace(":({0}).*".format("::*"), "")
         return df
 
     def filter_link_type(self, df):
@@ -223,10 +258,22 @@ class BagContainer(object):
         df = df.loc[df[self.col_exp].isin(sel_list)]
         return df
 
-    def get_group(self, sum_list, mean_list, group_on):
+    def filter_linky_by_whitelist(self, df, df_white_list):
+        if self.col_uxid not in df_white_list or self.col_exp not in df_white_list:
+            print("ERROR: column \"uxid\" or \"exp_name\" was not found inside the white list file. Exiting")
+            exit(1)
+        name = set(df[self.col_origin])
+        print("The link whitelist contains {0} entries".format(len(df_white_list)))
+        print("Shape of {0} before filtering via whitelist: {1}.".format(name, df.shape))
+        df = pd.merge(df, df_white_list, on=[self.col_uxid, self.col_exp])
+        print("Shape of {0} after filtering via whitelist: {1}.".format(name, df.shape))
+        return df
+
+    def get_group(self, sum_list, mean_list, group_on, log2=False):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
-        # df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
+        if log2:
+            df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         return df
 
@@ -245,21 +292,36 @@ class BagContainer(object):
         print("Shape of {0} after removing xTract violations: {1}.".format(name, df.shape))
         return df
 
-    def remove_lh_violations(self, df):
+    def compute_lh_log2ratio(self, df):
         # xtract filters per uid, experiment and charge state
-        def get_is_not_vio(x):
-            # absurd default value will always result in violation
-            log2 = -10
+        def get_lh_ratio(x):
+            log2 = np.nan
             log2series = x.groupby([self.col_weight_type])[self.col_area_sum_total].sum()
             if len(log2series) == 2:
                 log2 = np.log2(log2series[1] / log2series[0])
-            if -1 < log2 < 1:
-                return True
-            return False
+            x[self.col_lh_log2ratio] = log2
+            if not np.isnan(log2):
+                x[self.col_area_sum_light] = log2series[self.row_light_string]
+                x[self.col_area_sum_heavy] = log2series[self.row_heavy_string]
+            else:
+                x[self.col_area_sum_light] = np.nan
+                x[self.col_area_sum_heavy] = np.nan
+            return x
+        df = df.groupby([self.col_uid, self.col_exp, self.col_charge]).apply(get_lh_ratio)
+        return df
 
+    def add_link_distances(self, df, df_dist):
+        df_dist = df_dist.drop_duplicates()
+        print(df.shape)
+        df = pd.merge(df, df_dist, how='left', on=[self.col_exp, self.col_uxid])
+        print(df.shape)
+        return df
+
+    def remove_lh_violations(self, df):
+        # xtract filters per uid, experiment and charge state
         name = set(df[self.col_origin])
         print("Shape of {0} before light/heavy log2 filter: {1}.".format(name, df.shape))
-        df = df.groupby([self.col_uid, self.col_exp, self.col_charge]).filter(get_is_not_vio)
+        df = df[(df[self.col_lh_log2ratio] > -1) & (df[self.col_lh_log2ratio] < 1)]
         print("Shape of {0} after light/heavy log2 filter: {1}".format(name, df.shape))
         return df
 
@@ -397,91 +459,6 @@ class BagContainer(object):
         print("pvals smaller than 0.01", len(df[df[self.col_pval] <= 0.01]))
         return df
 
-    # function to get ms1 intensities grouped by experiment; works with bag_container.stats and .details
-    # returns new dataframe
-    def get_sum_ms1_intensities_df(self, df):
-        # we split up the input by experiment and compute all ms1 intensities separately
-        exp_list = list(set(df[self.exp_string]))
-        # this list stores the dataframes by experiment
-        df_exp_list = []
-
-        # all ids (either uxid or uid) are put into one set and used for constructing the initial dataframe
-        # this also allows for detection of ids missing from one of the two experiments
-        id_list = list(set(df[self.level_string]))
-        # iterating by experiment
-        for exp in exp_list:
-            # since we use the experiment to group the plotting, the exp_new name will also include the original file name
-            exp_new = "{0} ({1}): {2}".format(exp, self.cont_type, df.name[:df.name.rfind('_')])
-            # creating the results dataframe
-            df_res = pd.DataFrame()
-            kwargs = {self.col_level: id_list,
-                      self.col_exp: pd.Series([exp_new for l in range(len(id_list))]),
-                      self.col_exp_original: pd.Series([exp for l in range(len(id_list))]),
-                      self.col_bag_type: pd.Series([self.cont_type for l in range(len(id_list))]),
-                      self.col_origin: pd.Series([df.name for l in range(len(id_list))])}
-            df_res = df_res.assign(**kwargs)
-
-            # filtering the input dataframe by experiment name
-            df_exp = df.loc[df[self.exp_string] == exp]
-            # processing bag_container.details
-            # filtering these two means we get exactly the same results as from the regular bag container
-            # removes violations (but no violations are calculated for monolinks)
-            df_exp = df_exp.loc[df_exp[self.vio_string] == 0]
-            df_exp = df_exp.loc[df_exp[self.valid_string] == 1]
-
-            df_exp = df_exp.rename(index=str, columns={self.level_string: self.col_level})
-            # summing up the total ms1 sum for the same id; again only really sums at uxid col_level
-            df_ms1_tot = df_exp.groupby(
-                [self.col_level, self.col_link_type])[self.sum_string].sum().reset_index(name=self.col_area_sum_total)
-            df_res = pd.merge(df_res, df_ms1_tot, on=[self.col_level], how='inner')
-            # the intensities for light and heavy ids have to calculated explicitly for details container
-            # we group by weight and sum up the itensities
-            df_ms1_lh = df_exp.groupby(
-                [self.col_level, self.col_weight_type])[self.sum_string].sum().reset_index(name=self.col_area_sum_total)
-            # we want the heavy and light intensities as separate columns and therefore pivot the dataframe here
-            df_ms1_lh = pd.pivot_table(df_ms1_lh, values=self.col_area_sum_total, index=[self.col_level],
-                                       columns=self.col_weight_type)
-            df_ms1_lh = df_ms1_lh.reset_index()
-            df_ms1_lh = df_ms1_lh.rename(
-                index=str, columns={self.row_light_string: self.col_area_sum_light,
-                                    self.row_heavy_string: self.col_area_sum_heavy})
-            df_res = pd.merge(df_res, df_ms1_lh, on=[self.col_level], how='inner')
-            df_ms1_bio_rep = df_exp.groupby(
-                [self.col_level, self.repl_bio_string])[self.sum_string].sum().reset_index(name=self.col_area_sum_total)
-            df_ms1_bio_rep = pd.pivot_table(df_ms1_bio_rep, values=self.col_area_sum_total, index=[self.col_level],
-                                            columns=self.repl_bio_string)
-            df_ms1_bio_rep = df_ms1_bio_rep.reset_index()
-            # df_ms1_bio_rep = df_ms1_bio_rep.fillna(-1)
-            rep_list = sorted(set(df_exp[self.repl_bio_string]))
-            rep_name_dict = {x: self.col_area_bio_repl + str(x) for x in rep_list}
-            df_ms1_bio_rep = df_ms1_bio_rep.rename(index=str, columns=rep_name_dict)
-            df_res = pd.merge(df_res, df_ms1_bio_rep, on=[self.col_level], how='inner')
-            df_res[self.col_var] = df_res[list(rep_name_dict.values())].var(axis=1)
-            df_res[self.col_std] = df_res[list(rep_name_dict.values())].std(axis=1)
-            # not sure if we should fill up na here with 0
-            # if we do it would mean an id not detected in one experiment gets a 0 intensity
-            # df_res = df_res.fillna(0)
-
-            # computes a normalized by maximum ms1 intensity; not used atm
-            df_res[self.col_area_sum_norm_total] = df_res[self.col_area_sum_total] / df_res[
-                self.col_area_sum_total].max()
-            # computes the light/heavy log2ratio
-            df_res[self.col_lh_log2ratio] = np.log2(df_res[self.col_area_sum_light] / df_res[self.col_area_sum_heavy])
-            # df_res[col_area_sum_norm_total] = (df_res[col_area_sum_total] - df_res[col_area_sum_total].min()) / (df_res[col_area_sum_total].max() - df_res[col_area_sum_total].min())
-            df_exp_list.append(df_res)
-        df_final = pd.DataFrame()
-        for dfl in df_exp_list:
-            df_final = df_final.append(dfl)
-        # computing the same violations as extract and removing them; right now only works on uid col_level
-        df_final = self.remove_violations(df_final)
-
-        # computing the log2ratio between the two experiments; hardcoded right now; at least reference should be a user setting
-        df_log2 = pd.pivot_table(df_final, values=self.col_area_sum_total, index=[self.col_level],
-                                 columns=self.col_exp).reset_index()
-        df_log2 = df_log2.dropna()
-        df_log2[self.col_log2ratio] = np.log2(df_log2.iloc[:, 2] / df_log2.iloc[:, 1])
-        df_final = pd.merge(df_final, df_log2[[self.col_level, self.col_log2ratio]], on=[self.col_level], how='left')
-        return df_final
 
     def get_prot_name_and_link_pos(self, df):
         # temp df; splitting uxid into positions and protein names
@@ -512,7 +489,6 @@ class BagContainer(object):
                     pos2 = int(range_list[1])
                     return pos1 <= pos <= pos2
 
-                domain_all = ""
                 domain_list = []
                 pos_list = df_tmp[self.col_positions].iloc[0]
                 prot_list = df_tmp[self.col_proteins].iloc[0]
