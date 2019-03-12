@@ -14,7 +14,7 @@ from scipy.stats import zscore
 class BagContainer(object):
 
     def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, norm_exps='yes', norm_reps=False,
-                 df_domains=None, df_dist=None, whitelist=None):
+                 df_domains=None, df_dist=None, whitelist=None, sortlist=None):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
@@ -29,6 +29,7 @@ class BagContainer(object):
         self.col_area_sum_norm_total = self.col_area_sum_total + '_norm'
         self.col_area_sum_light = self.col_area_sum_total + '_light'
         self.col_area_sum_heavy = self.col_area_sum_total + '_heavy'
+        self.col_area_z_score = 'z_val'
         self.col_area_rep = self.col_area_sum_total + '_rep_mean'
         self.col_area_exp = self.col_area_sum_total + '_exp_mean'
         self.rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
@@ -128,6 +129,12 @@ class BagContainer(object):
             self.df_orig = self.normalize_experiments(self.df_orig)
         if self.col_dist:
             self.df_orig = self.add_link_distances(self.df_orig, df_dist)
+        if sortlist is not None:
+            self.df_orig[self.col_exp] = pd.Categorical(
+                self.df_orig[self.col_exp],
+                categories=sortlist[self.col_exp],
+                ordered=True
+            )
         self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
         self.bio_rep_num = len(self.bio_rep_list)
@@ -269,12 +276,14 @@ class BagContainer(object):
         print("Shape of {0} after filtering via whitelist: {1}.".format(name, df.shape))
         return df
 
-    def get_group(self, sum_list, mean_list, group_on, log2=False):
+    def get_group(self, sum_list, mean_list, group_on, log2=False, z_score=False):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
-        if log2:
+        if log2 or z_score:
             df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
+        if z_score:
+            df[self.col_area_z_score] = df.groupby([self.col_level])[self.col_area_sum_total].transform(zscore)
         return df
 
     def remove_invalid_ids(self, df):
