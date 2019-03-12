@@ -21,12 +21,12 @@ def save_fig(out_name, out_dir='plots'):
     plt.tight_layout()
     plt.tight_layout()
     plt.tight_layout()
-    plt.savefig("{0}/plot_{1}.png".format(out_dir, out_name))
+    plt.savefig("{0}/plot_{1}.svg".format(out_dir, out_name))
 
 
 def save_g(fg, out_name, out_dir='plots', **kwargs):
     out_dir = create_plots_dir(out_dir)
-    fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
+    fg.savefig("{0}/plot_{1}.svg".format(out_dir, out_name), **kwargs)
 
 
 def save_n_show_fig(out_name, out_dir = 'plots'):
@@ -37,7 +37,7 @@ def save_n_show_fig(out_name, out_dir = 'plots'):
     plt.tight_layout()
     plt.tight_layout()
     plt.tight_layout()
-    plt.savefig("{0}/plot_{1}.png".format(out_dir, out_name))
+    plt.savefig("{0}/plot_{1}.svg".format(out_dir, out_name))
     plt.show()
 
 def facet_grid_vertical_label(fg, size=None):
