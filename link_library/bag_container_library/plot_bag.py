@@ -235,7 +235,7 @@ class PlotMaster(object):
     def plot_scatter(self):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]
         mean_list = [self.bag_cont.col_exp, self.bag_cont.col_link_type]
-        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total)
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
         exp_list = sorted(list(set(df[self.bag_cont.col_exp])))
         if len(exp_list) > 2:
             print("More than two experiments found. Please select which ones to plot.")
@@ -259,22 +259,18 @@ class PlotMaster(object):
 
         # note that regplot (underlying lmplot) will automatically remove zero values when using log scale
         fg = sns.lmplot(x=self.bag_cont.col_area_sum_total + '_x', y=self.bag_cont.col_area_sum_total + '_y', hue=self.bag_cont.col_link_type, data=df,
-                        fit_reg=False, robust=False, ci=None)
-        min_x = df[self.bag_cont.col_area_sum_total + '_x'].min()
-        min_y = df[self.bag_cont.col_area_sum_total + '_y'].min()
-        min_min = min(min_x, min_y)
-        # using same minimum value for x and y and offset it by half to not cut off values at the limits
-        min_min -= min_min/2
+                        fit_reg=True, robust=False, ci=None, lowess=True)
+        p_min = df[self.bag_cont.col_area_sum_total + '_x'].min()
+        p_max = df[self.bag_cont.col_area_sum_total + '_y'].min()
         fg.set(xlabel="{0} ({1})".format(self.bag_cont.col_area_sum_total,
                                          df[self.bag_cont.col_exp+'_x'][0]),  #KK_26S_merged_final.analyzer.quant
                ylabel="{0} ({1})".format(self.bag_cont.col_area_sum_total,
                                          df[self.bag_cont.col_exp+'_y'][0]),
-               xscale='log', yscale='log', title="{0} col_level".format(self.bag_cont.col_level),
-               xlim=min_min,ylim=min_min)
+               title="{0} col_level".format(self.bag_cont.col_level))
         # draw horizontal line for all possible plots
         for row in fg.axes:
             for ax in row:
-                ax.plot(ax.get_xlim(), ax.get_ylim(), ls="--", c=".3")
+                ax.plot(ax.get_xlim(), ax.get_xlim(), ls="--", c=".3")
         self.plot_fig(name="scatter")
 
     def plot_light_heavy_scatter(self):
@@ -320,7 +316,7 @@ class PlotMaster(object):
                     # draw horizontal line for all possible plots
                     for row in fg.axes:
                         for ax in row:
-                            ax.plot(ax.get_xlim(), ax.get_ylim(), ls="--", c=".3")
+                            ax.plot(ax.get_xlim(), ax.get_xlim(), ls="--", c=".3")
                     self.plot_fig(name='rep', extra="{0}_vs_{1}".format(n_outer, n_inner))
 
     def plot_bio_rep_ma_scatter(self):
