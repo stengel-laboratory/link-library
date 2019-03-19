@@ -14,7 +14,7 @@ from scipy.stats import zscore
 class BagContainer(object):
 
     def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, norm_exps='yes', norm_reps=False,
-                 df_domains=None, df_dist=None, whitelist=None, sortlist=None):
+                 df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh','xt')):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
@@ -35,6 +35,7 @@ class BagContainer(object):
         self.rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
         self.col_index = 'index'
         self.col_log2ratio = 'log2ratio'
+        self.col_log2avg = 'log2avg'
         self.col_log2ratio_ref = 'log2ratio_ref_exp'
         self.col_lh_log2ratio = 'light_heavy_log2ratio'
         self.col_bio_rep = 'exp_bio_rep'
@@ -118,8 +119,12 @@ class BagContainer(object):
 
         self.df_orig = self.remove_invalid_ids(self.df_orig)
         self.df_orig = self.compute_lh_log2ratio(self.df_orig)
-        self.df_orig = self.remove_lh_violations(self.df_orig)
-        # self.df_orig = self.remove_xtract_violations(self.df_orig)
+        if 'lh' in vio_list:
+            self.df_orig = self.remove_lh_violations(self.df_orig)
+        if 'xt' in vio_list:
+            self.df_orig = self.remove_xtract_violations(self.df_orig)
+        if 'lh' not in vio_list and 'xt' not in vio_list:
+            'WARNING: No violations removal was selected. Results will be unfiltered'
         if whitelist is not None:
             self.df_orig = self.filter_linky_by_whitelist(self.df_orig, whitelist)
         self.df_orig = self.compute_rep_and_exp_mean(self.df_orig)
@@ -129,14 +134,16 @@ class BagContainer(object):
             self.df_orig = self.normalize_experiments(self.df_orig)
         if self.col_dist:
             self.df_orig = self.add_link_distances(self.df_orig, df_dist)
-        if sortlist is not None:
-            self.df_orig[self.col_exp] = pd.Categorical(
-                self.df_orig[self.col_exp],
-                categories=sortlist[self.col_exp],
-                ordered=True
-            )
         self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
+        if sortlist is not None:
+            sortlist = sortlist[self.col_exp].values
+            sortlist = [e for e in sortlist if e in self.exp_list]
+            self.df_orig[self.col_exp] = pd.Categorical(
+                self.df_orig[self.col_exp],
+                categories=sortlist,
+                ordered=True
+            )
         self.bio_rep_num = len(self.bio_rep_list)
         self.tech_rep_list = self.df_orig[self.col_tech_rep].unique()
         self.tech_rep_num = len(self.tech_rep_list)
@@ -279,9 +286,9 @@ class BagContainer(object):
     def get_group(self, sum_list, mean_list, group_on, log2=False, z_score=False):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
+        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         if log2 or z_score:
             df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
-        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         if z_score:
             df[self.col_area_z_score] = df.groupby([self.col_level])[self.col_area_sum_total].transform(zscore)
         return df
@@ -334,7 +341,7 @@ class BagContainer(object):
         print("Shape of {0} after light/heavy log2 filter: {1}".format(name, df.shape))
         return df
 
-    def get_stats(self, sum_list, mean_list, log2=True):
+    def get_stats(self, sum_list, mean_list, log2=False):
         df = pd.DataFrame(self.df_orig)
         df = df.groupby([self.col_level] + sum_list)[self.col_area_sum_total].sum().reset_index()
         if log2:
@@ -395,9 +402,11 @@ class BagContainer(object):
         def get_loggi(x):
             log2col = pd.Series(np.log2(
                 x[self.col_area_sum_total] / x[self.col_area_sum_total].loc[x[self.col_exp] == ref].values[0]))
-            # print(pd.concat([x, log2col], axis=1, sort=True))
             log2col = log2col.rename(self.col_log2ratio)
-            df = pd.concat([x, log2col], axis=1)
+            log2avgcol = pd.Series(np.log2(
+                x[self.col_area_sum_total] * x[self.col_area_sum_total].loc[x[self.col_exp] == ref].values[0])/2)
+            log2avgcol = log2avgcol.rename(self.col_log2avg)
+            df = pd.concat([x, log2col, log2avgcol], axis=1)
             kwargs = {self.col_log2ratio_ref: ref}
             df = df.assign(**kwargs)
             return df
@@ -412,6 +421,31 @@ class BagContainer(object):
         df = df.groupby([self.col_level]).apply(get_loggi).reset_index(drop=True)
         df = df.drop(columns=[self.col_area_sum_total]) # makes no sense to return this column for a single experiment
         df = df.loc[df[self.col_exp] != ref]
+        return df
+
+    def getlog2ratio_r(self, sum_list, mean_list, ref):
+        def get_loggi(x):
+            log2col = pd.Series(np.log2(
+                x[self.col_area_sum_total] / x[self.col_area_sum_total].loc[x[self.col_bio_rep] == ref].values[0]))
+            log2col = log2col.rename(self.col_log2ratio)
+            log2avgcol = pd.Series(np.log2(
+                x[self.col_area_sum_total] * x[self.col_area_sum_total].loc[x[self.col_bio_rep] == ref].values[0])/2)
+            log2avgcol = log2avgcol.rename(self.col_log2avg)
+            df = pd.concat([x, log2col, log2avgcol], axis=1)
+            kwargs = {self.col_log2ratio_ref: ref}
+            df = df.assign(**kwargs)
+            return df
+
+        df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
+        if self.impute_missing:
+            df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
+            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp, self.col_bio_rep])
+        else:
+            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp, self.col_bio_rep])
+            # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
+        df = df.groupby([self.col_exp, self.col_level]).apply(get_loggi).reset_index(drop=True)
+        df = df.drop(columns=[self.col_area_sum_total]) # makes no sense to return this column for a single experiment
+        df = df.loc[df[self.col_bio_rep] != ref]
         return df
 
     def get_two_sided_ttest(self, sum_list, mean_list, ref):
