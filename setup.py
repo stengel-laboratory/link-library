@@ -1,4 +1,5 @@
 from distutils.core import setup
+
 setup(name='link_library',
       description='Management of crosslink databases',
       author='Kai Kammer',
@@ -6,5 +7,9 @@ setup(name='link_library',
       url='https://git.uni-konstanz.de/kai-michael-kammer/link_library',
       version='1.0',
       packages=['link_library'],
+      install_requires=[
+          'matplotlib',
+          'pandas'
+      ],
       license='MIT',
       )
