@@ -76,7 +76,7 @@ def map_point(x,y, annot, **kwargs):
         plt.annotate(str(annot), xy=(x, y), fontsize=10,
                     color='black',
                     bbox=dict(pad=.9, alpha=.9, fc='w', color='none'),
-                    va='center', ha='center', weight='bold')
+                    va='center', ha='center', weight='bold', zorder=100)
         # color: text color; bbox: dict defining the bounding box; fc: fill color;
         # zorder: draw order of the element; we need a high number here; otherwise the hue parameter of sns overwrites
 
