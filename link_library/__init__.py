@@ -90,12 +90,13 @@ def timeit(f):
         return ret
     return wrap
 
+
 def get_xtract_df(bag_cont, incl_tech=False):
     xt_db = xTractDB()
     if incl_tech:
-        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type, bag_cont.col_link_type, bag_cont.col_tech_rep]
+        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type, bag_cont.col_tech_rep]
     else:
-        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type, bag_cont.col_link_type]
+        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type]
     sum_list_log2 = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_tech_rep, bag_cont.col_weight_type, bag_cont.col_link_type]
     mean_list = [bag_cont.col_exp, bag_cont.col_link_type]
     exp_ref = input_log2_ref(bag_cont.exp_list)
