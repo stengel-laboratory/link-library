@@ -548,7 +548,8 @@ class BagContainer(object):
                     elif len(df_dom) == 0:
                         domain = 'Unknown'
                     else:
-                        print("ERROR: Multiple domains found. Exiting.")
+                        print("ERROR: Multiple domains found: {0}. Protein: {1}. Position: {2}."
+                              "\nExiting.".format(df_dom.values, prot, pos))
                         exit(1)
                     domain_list.append(domain)
                 # remove duplicates
