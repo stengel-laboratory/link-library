@@ -11,10 +11,11 @@ Library containing shared plotting functions
 def create_plots_dir(out_dir = 'plots'):
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(out_dir + '/svg', exist_ok=True)
+    os.makedirs(out_dir + '/csv', exist_ok=True)
     return out_dir
 
 
-def save_fig(out_name, out_dir='plots'):
+def save_fig(out_name, df=None, out_dir='plots'):
     out_dir = create_plots_dir(out_dir)
     # plt.tight_layout()
     figure = plt.gcf()  # get current figure
@@ -24,15 +25,19 @@ def save_fig(out_name, out_dir='plots'):
     plt.tight_layout()
     plt.savefig("{0}/plot_{1}.png".format(out_dir, out_name))
     plt.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name))
+    if df is not None:
+        df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
 
 
-def save_g(fg, out_name, out_dir='plots', **kwargs):
+def save_g(fg, out_name, df=None, out_dir='plots', **kwargs):
     out_dir = create_plots_dir(out_dir)
     fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
     fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)
+    if df is not None:
+        df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
 
 
-def save_n_show_fig(out_name, out_dir = 'plots'):
+def save_n_show_fig(out_name, df=None, out_dir = 'plots'):
     out_dir = create_plots_dir(out_dir)
     plt.tight_layout()
     figure = plt.gcf()  # get current figure
@@ -43,6 +48,8 @@ def save_n_show_fig(out_name, out_dir = 'plots'):
     plt.savefig("{0}/plot_{1}.png".format(out_dir, out_name))
     plt.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name))
     plt.show()
+    if df is not None:
+        df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
 
 
 def facet_grid_vertical_label(fg, size=None):

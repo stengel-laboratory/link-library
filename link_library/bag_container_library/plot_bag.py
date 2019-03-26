@@ -15,6 +15,15 @@ class PlotMaster(object):
         self.bag_cont = bag_cont
 
     def plot_clustermap(self):
+        def cluster_formatter(cg, df_links):
+            # create invisible plot to create a legend for the row labeling; adapted from https://stackoverflow.com/a/27992943
+            for label in df_links[self.bag_cont.col_link_type].unique():
+                cg.ax_col_dendrogram.bar(0, 0, color=lut[label],
+                                         label=label, linewidth=0)
+            cg.ax_col_dendrogram.legend(loc="upper right")
+            ax = cg.ax_heatmap
+            # hiding the y labels as they are really not informative
+            ax.tick_params(axis='y', which='both', right=False, labelright=False)
         # how far up we want to sum up values; done first (understand it as an exclusion list)
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep] # self.bag_cont.col_tech_rep, self.bag_cont.col_charge self.bag_cont.col_weight_type
         # how far do we take the mean of values; done second
@@ -23,12 +32,12 @@ class PlotMaster(object):
         # mean_list = list(sum_list)
         # mean_list.remove(self.bag_cont.col_tech_rep)
         df = self.bag_cont.get_pivot(sum_list, mean_list, pivot_on=self.bag_cont.col_area_sum_total)
-        df_links = pd.DataFrame(self.bag_cont.df_orig)
-        df_links = df_links.groupby([self.bag_cont.col_level, self.bag_cont.col_link_type])[self.bag_cont.col_area_sum_total].sum().reset_index()
-        df_links = df_links.set_index(self.bag_cont.col_level)
-        df_links = df_links[self.bag_cont.col_link_type]
-        lut = dict(zip(df_links.unique(), "cb"))
-        row_colors = df_links.map(lut)
+        df_links = self.bag_cont.df_orig.drop_duplicates(subset=[self.bag_cont.col_level])
+        df_links = df_links[[self.bag_cont.col_level, self.bag_cont.col_link_type]]
+        df_label = df_links.set_index(self.bag_cont.col_level)
+        df_label = df_label[self.bag_cont.col_link_type]
+        lut = dict(zip(df_label.unique(), [(129/255, 201/255, 191/255), (80/255, 124/255, 216/255)])) #alternatively: 'cb'
+        row_colors = df_label.map(lut)
         # impute na values with a downshifted normal distribution
         df, dist_orig, dist_imputed = self.bag_cont.fillna_with_normal_dist(df)
         sns.distplot(dist_orig, kde=True, fit=norm)
@@ -39,19 +48,13 @@ class PlotMaster(object):
             self.plot_fig(name='cluster', extra="imputed_dist")
         print("Non imputed values: {0}. Imputed values: {1}".format(len(dist_orig),len(dist_imputed)))
         cg = sns.clustermap(data=df,cmap="mako_r",metric='canberra', row_colors=row_colors, xticklabels=True)
-        ax = cg.ax_heatmap
-        # hiding the y labels as they are really not informative
-        ax.tick_params(axis='y', which='both', right=False, labelright=False)
-        self.plot_fig(name="cluster", g=cg, dpi=300)
+        cluster_formatter(cg, df_links)
+        self.plot_fig(name="cluster", g=cg, dpi=300, df=df)
         cg = sns.clustermap(data=df,cmap="mako_r", z_score=0, metric='canberra', row_colors=row_colors, xticklabels=True)
-        ax = cg.ax_heatmap
-        # hiding the y labels as they are really not informative
-        ax.tick_params(axis='y', which='both', right=False, labelright=False)
+        cluster_formatter(cg, df_links)
         self.plot_fig(name='cluster', extra="z_row", g=cg, dpi=300)
         cg = sns.clustermap(data=df,cmap="mako_r", z_score=1, metric='canberra', row_colors=row_colors, xticklabels=True)
-        ax = cg.ax_heatmap
-        # hiding the y labels as they are really not informative
-        ax.tick_params(axis='y', which='both', right=False, labelright=False)
+        cluster_formatter(cg, df_links)
         self.plot_fig(name='cluster', extra="z_col", g=cg, dpi=300)
 
     def plot_bar(self):
@@ -71,7 +74,7 @@ class PlotMaster(object):
         ax = sns.barplot(x=self.bag_cont.col_level, y=self.bag_cont.col_area_sum_total, hue=self.bag_cont.col_exp, data=df, ci='sd')
         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
         ax.set(title="{0} col_level".format(self.bag_cont.col_level), yscale='log')
-        self.plot_fig(name="bar")
+        self.plot_fig(name="bar", df=df)
 
     def plot_ms1_area_std(self):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_weight_type, self.bag_cont.col_link_type]
@@ -86,7 +89,7 @@ class PlotMaster(object):
                 # ax.set_xscale('log', basex=10)
                 ax.set_ylim(ymin=0)
                 ax.hlines(y=0.5, xmin=df['mean'].min(), xmax=df['mean'].max(), label="std=0.5", colors=['grey'])
-        self.plot_fig(name="std", g=fg)
+        self.plot_fig(name="std", g=fg, df=df)
         # df = df[(df[self.bag_cont.col_log2ratio] < 1)&(df[self.bag_cont.col_log2ratio] > -1)]
 
     def plot_lowess(self):
@@ -99,7 +102,7 @@ class PlotMaster(object):
         df_stats['lowess'] = lw.lowess(df_stats['mean'], df_stats['snr'], return_sorted=False)
         df_stats['lowdiff'] = df_stats['mean']/df_stats['lowess']
         fg = sns.relplot(data=df_stats, x='snr', y='lowdiff', col=self.bag_cont.col_exp)
-        self.plot_fig(name="log2ratio_l", g=fg)
+        self.plot_fig(name="log2ratio_l", g=fg, df=df_stats)
 
 
     def plot_log2ma(self):
@@ -117,7 +120,7 @@ class PlotMaster(object):
             for ax in row:
                 ax.hlines(y=0, xmin=df[self.bag_cont.col_log2avg].min(),
                           xmax=df[self.bag_cont.col_log2avg].max(), label="log2ratio=0", colors=['purple'])
-        self.plot_fig(name="log2_ma", g=fg)
+        self.plot_fig(name="log2_ma", g=fg, df=df)
 
     def plot_log2ratio(self):
         def get_std_group(x):
@@ -146,7 +149,7 @@ class PlotMaster(object):
                 ax.set_ylim(ymin=0)
                 ax.hlines(y=0.05, xmin=df[self.bag_cont.col_log2ratio].min(),
                           xmax=df[self.bag_cont.col_log2ratio].max(), label="qval=0.05", colors=['purple'])
-        self.plot_fig(name="log2ratio", g=fg)
+        self.plot_fig(name="log2ratio", g=fg, df=df)
 
     def plot_link_overview(self, exp_percentage=50):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep] #self.bag_cont.col_tech_rep
@@ -176,7 +179,7 @@ class PlotMaster(object):
             self.bag_cont.col_area_sum_total].transform('mean')
         fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
         fg.add_legend()  # in order to properly draw the legend after using fg.map, it has to be drawn after fg.map
-        self.plot_fig(name="link_overview",g=fg)
+        self.plot_fig(name="link_overview",g=fg, df=df)
 
     def plot_domain_overview(self, exp_percentage=50):
         if self.bag_cont.col_domain:
@@ -194,6 +197,7 @@ class PlotMaster(object):
             fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_z_score,
                              col=self.bag_cont.col_domain, kind='point', col_wrap=5, ci='sd',
                              hue=self.bag_cont.col_domain, sharey=False, sharex=False)
+            # sns.swarmplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_z_score, color="k", size=3, ax=fg.axes)
             # for ax in fg.axes:
             #     ax.set_yscale('log', basey=2)
 
@@ -206,7 +210,7 @@ class PlotMaster(object):
                 self.bag_cont.col_area_z_score].transform('mean')
             fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
 
-            self.plot_fig(name="domain_overview", g=fg, facet_kws={'sharey':False, 'sharex':False})
+            self.plot_fig(name="domain_overview", g=fg, facet_kws={'sharey':False, 'sharex':False}, df=df)
         else:
             print("ERROR: No domains specified for plotting")
             exit(1)
@@ -225,12 +229,12 @@ class PlotMaster(object):
         ax = sns.boxplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total)
         ax.yaxis.set_major_locator(loc)
         # ax.set(yscale='log')
-        self.plot_fig(name="dilution_series")
+        self.plot_fig(name="dilution_series", df=df)
         ax = sns.boxplot(data=df_log2ratio, x=self.bag_cont.col_exp, y=self.bag_cont.col_log2ratio)
         ax.yaxis.set_major_locator(loc)
         print(df.groupby(self.bag_cont.col_exp).agg([pd.Series.mean, pd.Series.median]))
         print(df_log2ratio.groupby(self.bag_cont.col_exp).agg([np.mean, np.median]))
-        self.plot_fig(name="dilution_series_log2ratio")
+        self.plot_fig(name="dilution_series_log2ratio", df=df_log2ratio)
 
     def plot_scatter(self):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]
@@ -271,7 +275,7 @@ class PlotMaster(object):
         for row in fg.axes:
             for ax in row:
                 ax.plot(ax.get_xlim(), ax.get_xlim(), ls="--", c=".3")
-        self.plot_fig(name="scatter")
+        self.plot_fig(name="scatter", df=df)
 
     def plot_light_heavy_scatter(self):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type, self.bag_cont.col_origin]
@@ -291,7 +295,7 @@ class PlotMaster(object):
         for row in fg.axes:
             for ax in row:
                 ax.plot(ax.get_xlim(), ax.get_ylim(), ls="--", c=".3")
-        self.plot_fig(name='light_heavy_scatter')
+        self.plot_fig(name='light_heavy_scatter', df=df)
 
     def plot_bio_rep_scatter(self):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]
@@ -317,7 +321,7 @@ class PlotMaster(object):
                     for row in fg.axes:
                         for ax in row:
                             ax.plot(ax.get_xlim(), ax.get_xlim(), ls="--", c=".3")
-                    self.plot_fig(name='rep', extra="{0}_vs_{1}".format(n_outer, n_inner))
+                    self.plot_fig(name='rep', extra="{0}_vs_{1}".format(n_outer, n_inner), df=df_f)
 
     def plot_bio_rep_ma_scatter(self):
         import statsmodels.nonparametric.smoothers_lowess as lw
@@ -341,7 +345,7 @@ class PlotMaster(object):
             for ax in row:
                 ax.hlines(y=0, xmin=df[self.bag_cont.col_log2avg].min(),
                           xmax=df[self.bag_cont.col_log2avg].max(), label="log2ratio=0", colors=['purple'])
-        self.plot_fig(name="rep_ma", g=fg)
+        self.plot_fig(name="rep_ma", g=fg, df=df)
 
     def plot_mono_vs_xlink_quant(self):
         link_group_string = "link_group"
@@ -358,16 +362,16 @@ class PlotMaster(object):
         df = pd.merge(df_xlinks, df_monos, on=link_group_string)
         # print(df.groupby([self.bag_cont.col_exp, link_group_string, self.bag_cont.col_link_type]).mean())
         fg = sns.lmplot(data=df, x=self.bag_cont.col_area_sum_total+"_mono", y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
-        self.plot_fig(name="mono_quant", g=fg)
+        self.plot_fig(name="mono_quant", g=fg, df=df)
         df['mono_mean'] = df.groupby([self.bag_cont.col_level])[self.bag_cont.col_area_sum_total + "_mono"].transform('mean')
         fg = sns.lmplot(data=df, x="mono_mean", y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
-        self.plot_fig(name="mono_quant_mean", g=fg)
+        self.plot_fig(name="mono_quant_mean", g=fg, df=df)
         df['mono_min'] = df.groupby([self.bag_cont.col_level])[self.bag_cont.col_area_sum_total + "_mono"].transform('min')
         fg = sns.lmplot(data=df, x="mono_min", y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
-        self.plot_fig(name="mono_quant_min", g=fg)
+        self.plot_fig(name="mono_quant_min", g=fg, df=df)
         df['mono_max'] = df.groupby([self.bag_cont.col_level])[self.bag_cont.col_area_sum_total + "_mono"].transform('max')
         fg = sns.lmplot(data=df, x="mono_max", y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
-        self.plot_fig(name="mono_quant_max", g=fg)
+        self.plot_fig(name="mono_quant_max", g=fg, df=df)
 
 
     def plot_bio_rep_bar(self):
@@ -388,7 +392,7 @@ class PlotMaster(object):
         for row in fg.axes:
             for ax in row:
                 ax.set_xticklabels(ax.get_xticklabels(), rotation=90, ha='right', size=9)
-            self.plot_fig(name='rep_bar',extra="{0}".format(row))
+            self.plot_fig(name='rep_bar',extra="{0}".format(row), df=df)
 
     def get_lowdiff(self):
         import statsmodels.nonparametric.smoothers_lowess as lw
@@ -419,7 +423,7 @@ class PlotMaster(object):
         df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[self.bag_cont.col_dist].count() > 0)
 
         fg = sns.lmplot(data=df, x=self.bag_cont.col_dist, y=self.bag_cont.col_area_sum_total + '_mean', col=self.bag_cont.col_exp)
-        self.plot_fig("dist_vs_quant")
+        self.plot_fig("dist_vs_quant", df)
 
     def plot_dist_quant_corr(self):
         sum_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_dist, self.bag_cont.col_weight_type]
@@ -444,9 +448,9 @@ class PlotMaster(object):
         # df = pd.merge(df, df_log2, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
         df = df[['lowdiff', 'lowess',self.bag_cont.col_dist,self.bag_cont.col_area_sum_total, self.bag_cont.col_area_sum_total + '_sum', self.bag_cont.col_area_sum_total + '_mean', self.bag_cont.col_area_sum_total + '_min', self.bag_cont.col_area_sum_total + '_max', self.bag_cont.col_area_sum_total + '_z']]
         fg = sns.heatmap(df.corr(), annot=True, fmt=".2f", xticklabels=True, yticklabels=True)
-        self.plot_fig("dist_vs_quant_corr")
+        self.plot_fig("dist_vs_quant_corr", df)
 
-    def plot_fig(self, name, extra='', g = None, **kwargs):
+    def plot_fig(self, name, df=None, extra='', g = None, **kwargs):
         filter = ""
         if self.bag_cont.filter:
             filter = '_' + self.bag_cont.filter
@@ -454,7 +458,7 @@ class PlotMaster(object):
             extra = '_' + extra
         save_string = "bag_{0}_{1}{2}{3}".format(name, self.bag_cont.col_level, filter, extra)
         if g is None:
-            plib.save_fig(save_string, self.out_folder)
+            plib.save_fig(save_string, df=df, out_dir=self.out_folder)
         else:
-            plib.save_g(g, save_string, self.out_folder, **kwargs)
+            plib.save_g(g, save_string, df=df, out_dir=self.out_folder, **kwargs)
         plt.clf()
