@@ -13,7 +13,7 @@ from scipy.stats import zscore
 
 class BagContainer(object):
 
-    def __init__(self, level, df_list, filter='', sel_exp=False, impute_missing=False, norm_exps='yes', norm_reps=False,
+    def __init__(self, level, df_list, filter=None, sel_exp=False, impute_missing=False, norm_exps='yes', norm_reps=False,
                  df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh','xt')):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
@@ -90,13 +90,14 @@ class BagContainer(object):
             print("ERROR: Improper ms1 col_level entered: {0}".format(level))
             exit(1)
         self.filter = ""
-        if filter.lower() == self.row_monolink_string:
-            self.filter = self.row_monolink_string
-        elif filter.lower() == self.row_xlink_string:
-            self.filter = self.row_xlink_string
-        elif filter:
-            print("ERROR: Improper link filter entered: {0}".format(filter))
-            exit(1)
+        if filter is not None:
+            if filter.lower() == self.row_monolink_string:
+                self.filter = self.row_monolink_string
+            elif filter.lower() == self.row_xlink_string:
+                self.filter = self.row_xlink_string
+            elif filter:
+                print("ERROR: Improper link filter entered: {0}".format(filter))
+                exit(1)
         self.type = 'BagContainer_{0}'.format(level)
         # df orig should contain the original columns as given by xquest/xtract (just renamed and a few additions)
         self.df_orig = pd.DataFrame()
