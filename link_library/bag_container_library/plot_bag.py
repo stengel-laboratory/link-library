@@ -186,7 +186,10 @@ class PlotMaster(object):
             sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep]
             mean_list = [self.bag_cont.col_exp]
             cnt_column = 'count'
-            mean_column = self.bag_cont.col_area_z_score + '_mean'
+            mean_column = self.bag_cont.col_area_sum_total + '_mean'
+            median_column = self.bag_cont.col_area_sum_total + '_median'
+            mean_column_z = self.bag_cont.col_area_z_score + '_mean_z'
+            median_column_z = self.bag_cont.col_area_z_score + '_median_z'
             df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, z_score=True)
             df = self.bag_cont.get_prot_name_and_link_pos(df)
             num_exp = df[self.bag_cont.col_exp].nunique()
@@ -194,23 +197,45 @@ class PlotMaster(object):
             df = df.groupby([self.bag_cont.col_level]).filter(lambda x: x[self.bag_cont.col_exp].nunique()/num_exp >= exp_percentage/100)
 
             df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_domain])
-            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_z_score,
-                             col=self.bag_cont.col_domain, kind='point', col_wrap=5, ci='sd',
-                             hue=self.bag_cont.col_domain, sharey=False, sharex=False)
-            # sns.swarmplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_z_score, color="k", size=3, ax=fg.axes)
-            # for ax in fg.axes:
-            #     ax.set_yscale('log', basey=2)
-
-            # print(df.groupby(self.bag_cont.col_domain).apply(lambda x: print(x)))
 
             # this will count all unique links per domain and experiment (makes more sense tbh)
             df[cnt_column] = df.groupby([self.bag_cont.col_exp, self.bag_cont.col_domain])[
                 self.bag_cont.col_domain].transform('count')
             df[mean_column] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[
+                self.bag_cont.col_area_sum_total].transform('mean')
+            df[median_column] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[
+                self.bag_cont.col_area_sum_total].transform('median')
+            df[mean_column_z] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[
                 self.bag_cont.col_area_z_score].transform('mean')
-            fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
+            df[median_column_z] = df.groupby([self.bag_cont.col_domain, self.bag_cont.col_exp])[
+                self.bag_cont.col_area_z_score].transform('median')
 
+
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_z_score,
+                             col=self.bag_cont.col_domain, kind='point', col_wrap=5, ci='sd',
+                             hue=self.bag_cont.col_domain, sharey=False, sharex=False)
+            fg.map(plib.map_point, self.bag_cont.col_exp, mean_column_z, cnt_column)
+            self.plot_fig(name="domain_overview_z", g=fg, facet_kws={'sharey':False, 'sharex':False}, df=df)
+
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_z_score,
+                             col=self.bag_cont.col_domain, kind='box', col_wrap=5,
+                             hue=self.bag_cont.col_domain, sharey=False, sharex=False, dodge=False)
+            fg.map(sns.swarmplot, self.bag_cont.col_exp, self.bag_cont.col_area_z_score, color=".1")
+            fg.map(plib.map_point, self.bag_cont.col_exp, median_column_z, cnt_column, boxplot=True)
+            self.plot_fig(name="domain_overview_z_box", g=fg, facet_kws={'sharey':False, 'sharex':False}, df=df)
+
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                             col=self.bag_cont.col_domain, kind='point', col_wrap=5, ci='sd',
+                             hue=self.bag_cont.col_domain, sharey=False, sharex=False)
+            fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
             self.plot_fig(name="domain_overview", g=fg, facet_kws={'sharey':False, 'sharex':False}, df=df)
+
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                             col=self.bag_cont.col_domain, kind='box', col_wrap=5,
+                             hue=self.bag_cont.col_domain, sharey=False, sharex=False, dodge=False)
+            fg.map(sns.swarmplot, self.bag_cont.col_exp, self.bag_cont.col_area_sum_total, color=".1")
+            fg.map(plib.map_point, self.bag_cont.col_exp, median_column, cnt_column, boxplot=True)
+            self.plot_fig(name="domain_overview_box", g=fg, facet_kws={'sharey':False, 'sharex':False}, df=df)
         else:
             print("ERROR: No domains specified for plotting")
             exit(1)

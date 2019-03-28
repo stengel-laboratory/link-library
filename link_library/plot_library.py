@@ -64,7 +64,7 @@ def label_point(x, y, val, ax):
         ax.text(point['x'], point['y']+0.15, str(point['val']), fontsize=14, fontweight=600)
 
 
-def map_point(x,y, annot, **kwargs):
+def map_point(x,y, annot, boxplot=False, **kwargs):
     # create a ordered list of unique value triplets
     zip_y_annotate = list(dict.fromkeys(zip(x,y,annot)))
     # get the x_labels from matplotlib
@@ -79,11 +79,17 @@ def map_point(x,y, annot, **kwargs):
     x_pos_valid = [x_label_loc_dict[str(n)] for n in x_unique]
     # again create a ordered list of unique triplets; this only containing valid x values
     zip_y_annotate = list(dict.fromkeys(zip(x_pos_valid, y_unique, annot_unique)))
+    if boxplot:
+        color = 'white'
+        bbox=dict(boxstyle='circle',pad=.1, alpha=1., fc='black', color='none')
+    else:
+        color = 'black'
+        bbox=dict(boxstyle='circle',pad=.1, alpha=.9, fc='w', color='none')
     for x, y, annot in zip_y_annotate:
         plt.annotate(str(annot), xy=(x, y), fontsize=10,
-                    color='black',
-                    bbox=dict(pad=.9, alpha=.9, fc='w', color='none'),
-                    va='center', ha='center', weight='bold', zorder=100)
+                    color=color,
+                    bbox=bbox,
+                    va='center', ha='center', weight='bold',zorder=100)
         # color: text color; bbox: dict defining the bounding box; fc: fill color;
         # zorder: draw order of the element; we need a high number here; otherwise the hue parameter of sns overwrites
 
