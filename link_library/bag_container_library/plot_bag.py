@@ -104,7 +104,6 @@ class PlotMaster(object):
         fg = sns.relplot(data=df_stats, x='snr', y='lowdiff', col=self.bag_cont.col_exp)
         self.plot_fig(name="log2ratio_l", g=fg, df=df_stats)
 
-
     def plot_log2ma(self):
         import statsmodels.nonparametric.smoothers_lowess as lw
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep]
@@ -177,9 +176,85 @@ class PlotMaster(object):
             self.bag_cont.col_level].transform('count')
         df[mean_column] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp])[
             self.bag_cont.col_area_sum_total].transform('mean')
+
         fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
         fg.add_legend()  # in order to properly draw the legend after using fg.map, it has to be drawn after fg.map
-        self.plot_fig(name="link_overview",g=fg, df=df)
+        self.plot_fig(name="link_overview", g=fg, df=df)
+        df = self.bag_cont.normalize_experiments_by_ref(df, mean_list)
+        df[mean_column] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp])[
+            self.bag_cont.col_area_sum_total].transform('mean')
+        fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                         hue=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False,
+                         col=self.bag_cont.col_domain, sharex=False, legend=False)
+        self.plot_fig(name="link_overview_exp_norm", g=fg, df=df)
+
+    def plot_domain_single_link(self, exp_percentage=50, ratio_mean=False, log2ratio=False):
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep] #self.bag_cont.col_tech_rep
+        if ratio_mean:
+            mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type]
+        else:
+            mean_list = [self.bag_cont.col_exp]
+        cnt_column = 'count'
+        mean_column = self.bag_cont.col_area_sum_total + '_mean_exp'
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=(not log2ratio))
+        # print("Mean STD", np.mean(df.groupby(self.bag_cont.col_level)[self.bag_cont.col_area_sum_total].apply(pd.Series.std)))
+        num_exp = df[self.bag_cont.col_exp].nunique()
+        # filter links which were not found in x percent of the total experiments
+        df = df.groupby([self.bag_cont.col_level]).filter(lambda x: x[self.bag_cont.col_exp].nunique()/num_exp >= exp_percentage/100)
+        df = self.bag_cont.normalize_experiments_by_ref(df, mean_list, log2ratio)
+
+        if self.bag_cont.col_domain:
+            df = self.bag_cont.get_prot_name_and_link_pos(df)
+            df = df.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp, self.bag_cont.col_level])
+            df[mean_column] = df.groupby([self.bag_cont.col_exp, self.bag_cont.col_domain])[
+                self.bag_cont.col_area_sum_total].transform('mean')
+            df[cnt_column] = df.groupby([self.bag_cont.col_exp, self.bag_cont.col_domain])[
+                self.bag_cont.col_level].transform('count')
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                             hue=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=True,
+                             col=self.bag_cont.col_domain, sharex=False, legend=False, color='lightgrey')
+        else:
+            df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
+            df[mean_column] = df.groupby([self.bag_cont.col_exp])[
+                self.bag_cont.col_area_sum_total].transform('mean')
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                             hue=self.bag_cont.col_level, kind='point', ci='sd', sharey=True,
+                             sharex=False, legend=False, color='lightgrey')
+        # for ax in fg.axes:
+        #     ax.set_yscale('log', basey=2)
+        # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+        #                  col=self.bag_cont.col_level, kind='line', col_wrap=5, ci='sd',
+        #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
+        backgroundartists = []
+        for ax in fg.axes.flat:
+            for l in ax.lines + ax.collections:
+                l.set_zorder(1)
+                backgroundartists.append(l)
+        if df[self.bag_cont.col_exp].dtype.name == 'category':
+            order = df[self.bag_cont.col_exp].cat.categories
+        else:
+            order = sorted(df[self.bag_cont.col_exp].unique())
+        fg.map(sns.pointplot, self.bag_cont.col_exp, self.bag_cont.col_area_sum_total, ci='sd', color='black',
+               order=order)
+
+        for ax in fg.axes.flat:
+            for l in ax.lines + ax.collections:
+                if l not in backgroundartists:
+                    l.set_zorder(5)
+        fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
+        #fg.add_legend()  # in order to properly draw the legend after using fg.map, it has to be drawn after fg.map
+        if log2ratio:
+            for ax in fg.axes.flat:
+                ax.set_ylabel("log2ratio")
+        outname = "domain_single_link"
+        if ratio_mean:
+            outname += "_ratio_mean"
+        if log2ratio:
+            outname += "_log2ratio"
+
+        self.plot_fig(name=outname, g=fg, df=df)
+
+
 
     def plot_domain_overview(self, exp_percentage=50):
         if self.bag_cont.col_domain:
@@ -435,19 +510,21 @@ class PlotMaster(object):
         return df_stats
 
     def plot_dist_vs_quant(self):
-        sum_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_dist, self.bag_cont.col_weight_type]
-        mean_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_dist]
-        df = self.bag_cont.df_orig.copy()
-        dfs = self.get_lowdiff()
-        df = pd.merge(df, dfs, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_dist, self.bag_cont.col_weight_type]
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_dist]
+        #df = self.bag_cont.df_orig.copy()
+        #dfs = self.get_lowdiff()
+        #df = pd.merge(df, dfs, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
 
-        df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
-            self.bag_cont.col_area_sum_total].transform('sum')
-        df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
-        # df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
+        #df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
+        #    self.bag_cont.col_area_sum_total].transform('sum')
+        #df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
         df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[self.bag_cont.col_dist].count() > 0)
-
-        fg = sns.lmplot(data=df, x=self.bag_cont.col_dist, y=self.bag_cont.col_area_sum_total + '_mean', col=self.bag_cont.col_exp)
+        #df =  df[df[self.bag_cont.col_dist] < 0]
+        #df[self.bag_cont.col_dist] =  abs(df[self.bag_cont.col_dist])
+        fg = sns.lmplot(data=df, x=self.bag_cont.col_dist, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
+        #fg.set(xscale='log')
         self.plot_fig("dist_vs_quant", df)
 
     def plot_dist_quant_corr(self):
