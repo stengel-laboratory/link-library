@@ -196,7 +196,7 @@ class PlotMaster(object):
             mean_list = [self.bag_cont.col_exp]
         cnt_column = 'count'
         mean_column = self.bag_cont.col_area_sum_total + '_mean_exp'
-        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=(not log2ratio))
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=False)#(not log2ratio))
         # print("Mean STD", np.mean(df.groupby(self.bag_cont.col_level)[self.bag_cont.col_area_sum_total].apply(pd.Series.std)))
         num_exp = df[self.bag_cont.col_exp].nunique()
         # filter links which were not found in x percent of the total experiments
