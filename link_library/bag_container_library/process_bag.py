@@ -181,6 +181,23 @@ class BagContainer(object):
         print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
         return df
 
+    def normalize_experiments_by_ref(self, df, grp_list, log2ratio):
+        if df[self.col_exp].dtype.name == 'category':
+            ref = df[self.col_exp].cat.categories[0]
+        else:
+            ref = sorted(df[self.col_exp].unique())[0]
+        grp_list.remove(self.col_exp)
+        grp_list.append(self.col_level)
+        df_ref = df[df[self.col_exp] == ref]
+        df_ref = df_ref[[self.col_area_sum_total] + grp_list]
+        df_ref = df_ref.rename(index=str, columns={self.col_area_sum_total: self.col_area_sum_total + '_exp_ref'})
+        df = pd.merge(df, df_ref, on=grp_list)
+        if log2ratio:
+            df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
+        else:
+            df[self.col_area_sum_total] = (df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
+        return df
+
     def compute_rep_and_exp_mean(self, df):
         mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
 
@@ -503,7 +520,6 @@ class BagContainer(object):
         print("pvals smaller than 0.01", len(df[df[self.col_pval] <= 0.01]))
         return df
 
-
     def get_prot_name_and_link_pos(self, df):
         # temp df; splitting uxid into positions and protein names
         def get_pos_and_prot(entry_list):
@@ -589,7 +605,6 @@ class BagContainer(object):
             df[self.col_area_sum_total] = \
                 df[self.col_area_sum_total].apply(lambda x: x / self.bio_rep_num * self.tech_rep_num)
         return df
-
 
     def get_matching_monos(self):
         import link_library as ll
