@@ -180,13 +180,6 @@ class PlotMaster(object):
         fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
         fg.add_legend()  # in order to properly draw the legend after using fg.map, it has to be drawn after fg.map
         self.plot_fig(name="link_overview", g=fg, df=df)
-        df = self.bag_cont.normalize_experiments_by_ref(df, mean_list)
-        df[mean_column] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp])[
-            self.bag_cont.col_area_sum_total].transform('mean')
-        fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
-                         hue=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False,
-                         col=self.bag_cont.col_domain, sharex=False, legend=False)
-        self.plot_fig(name="link_overview_exp_norm", g=fg, df=df)
 
     def plot_domain_single_link(self, exp_percentage=50, ratio_mean=False, log2ratio=False):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep] #self.bag_cont.col_tech_rep
