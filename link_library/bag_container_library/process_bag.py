@@ -61,6 +61,7 @@ class BagContainer(object):
         self.bag_container_index_string = 'a_bag_container_db_index'
         self.row_monolink_string = 'monolink'
         self.row_xlink_string = 'xlink'
+        self.row_loop_link = 'intralink'
         self.row_light_string = 'light'
         self.row_heavy_string = 'heavy'
         self.row_details_string = 'details'
@@ -95,6 +96,8 @@ class BagContainer(object):
                 self.filter = self.row_monolink_string
             elif filter.lower() == self.row_xlink_string:
                 self.filter = self.row_xlink_string
+            elif filter.lower() == self.row_loop_link:
+                self.filter = self.row_loop_link
             elif filter:
                 print("ERROR: Improper link filter entered: {0}".format(filter))
                 exit(1)
@@ -272,9 +275,10 @@ class BagContainer(object):
                                                               .format(self.row_light_string, self.row_heavy_string),
                                                               "")
         # doing the same for the link type string
-        df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}).*"
+        df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}|{2}).*"
                                                               .format(self.row_monolink_string,
-                                                                      self.row_xlink_string), "")
+                                                                      self.row_xlink_string,
+                                                                      self.row_loop_link), "")
         # and again for the charge string
         df[self.uid_string] = df[self.uid_string].str.replace(":({0}).*".format("::*"), "")
         return df
