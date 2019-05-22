@@ -35,6 +35,7 @@ class BagContainer(object):
         self.rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
         self.col_index = 'index'
         self.col_log2ratio = 'log2ratio'
+        self.col_ratio = 'ratio'
         self.col_log2avg = 'log2avg'
         self.col_log2ratio_ref = 'log2ratio_ref_exp'
         self.col_lh_log2ratio = 'light_heavy_log2ratio'
@@ -184,23 +185,6 @@ class BagContainer(object):
         print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
         return df
 
-    def normalize_experiments_by_ref(self, df, grp_list, log2ratio):
-        if df[self.col_exp].dtype.name == 'category':
-            ref = df[self.col_exp].cat.categories[0]
-        else:
-            ref = sorted(df[self.col_exp].unique())[0]
-        grp_list.remove(self.col_exp)
-        grp_list.append(self.col_level)
-        df_ref = df[df[self.col_exp] == ref]
-        df_ref = df_ref[[self.col_area_sum_total] + grp_list]
-        df_ref = df_ref.rename(index=str, columns={self.col_area_sum_total: self.col_area_sum_total + '_exp_ref'})
-        df = pd.merge(df, df_ref, on=grp_list)
-        if log2ratio:
-            df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
-        else:
-            df[self.col_area_sum_total] = (df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
-        return df
-
     def compute_rep_and_exp_mean(self, df):
         mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
 
@@ -331,7 +315,7 @@ class BagContainer(object):
         return df
 
     def compute_lh_log2ratio(self, df):
-        # xtract filters per uid, experiment and charge state
+        # xtract filters per uid, experiment and charge state and link type
         def get_lh_ratio(x):
             log2 = np.nan
             log2series = x.groupby([self.col_weight_type])[self.col_area_sum_total].sum()
@@ -345,7 +329,7 @@ class BagContainer(object):
                 x[self.col_area_sum_light] = np.nan
                 x[self.col_area_sum_heavy] = np.nan
             return x
-        df = df.groupby([self.col_uid, self.col_exp, self.col_charge]).apply(get_lh_ratio)
+        df = df.groupby([self.col_uid, self.col_exp, self.col_charge, self.col_link_type]).apply(get_lh_ratio)
         return df
 
     def add_link_distances(self, df, df_dist):
@@ -420,29 +404,33 @@ class BagContainer(object):
         # a[:] = zscore(a, axis=0) # normalize along columns via z-score
         return df, b, a[m]
 
-    def getlog2ratio(self, sum_list, mean_list, ref):
-        def get_loggi(x):
-            log2col = pd.Series(np.log2(
-                x[self.col_area_sum_total] / x[self.col_area_sum_total].loc[x[self.col_exp] == ref].values[0]))
-            log2col = log2col.rename(self.col_log2ratio)
-            log2avgcol = pd.Series(np.log2(
-                x[self.col_area_sum_total] * x[self.col_area_sum_total].loc[x[self.col_exp] == ref].values[0])/2)
-            log2avgcol = log2avgcol.rename(self.col_log2avg)
-            df = pd.concat([x, log2col, log2avgcol], axis=1)
-            kwargs = {self.col_log2ratio_ref: ref}
-            df = df.assign(**kwargs)
-            return df
-
+    def getlog2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False):
+        if self.col_link_type not in sum_list:
+            sum_list.append(self.col_link_type)
+        if self.col_link_type not in mean_list:
+            mean_list.append(self.col_link_type)
         df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
         if self.impute_missing:
             df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
         else:
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
-            # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
-        df = df.groupby([self.col_level]).apply(get_loggi).reset_index(drop=True)
-        df = df.drop(columns=[self.col_area_sum_total]) # makes no sense to return this column for a single experiment
-        df = df.loc[df[self.col_exp] != ref]
+            df = df.dropna()
+        if not ref:
+            if df[self.col_exp].dtype.name == 'category':
+                ref = df[self.col_exp].cat.categories[0]
+            else:
+                ref = sorted(df[self.col_exp].unique())[0]
+        grp_list = [self.col_level, self.col_link_type]
+        df_ref = df[df[self.col_exp] == ref]
+        df_ref = df_ref[[self.col_area_sum_total] + grp_list]
+        df_ref = df_ref.rename(index=str, columns={self.col_area_sum_total: self.col_area_sum_total + '_exp_ref'})
+        df = pd.merge(df, df_ref, on=grp_list)
+        if ratio_only:
+            df[self.col_ratio] = df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref']
+        else:
+            df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
+        df[self.col_log2ratio_ref] = ref
         return df
 
     def getlog2ratio_r(self, sum_list, mean_list, ref):
