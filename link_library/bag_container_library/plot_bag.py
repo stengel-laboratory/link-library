@@ -182,35 +182,37 @@ class PlotMaster(object):
         self.plot_fig(name="link_overview", g=fg, df=df)
 
     def plot_domain_single_link(self, exp_percentage=50, ratio_mean=False, log2ratio=False):
+        value_column = self.bag_cont.col_ratio
+        if log2ratio:
+            value_column = self.bag_cont.col_log2ratio
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep] #self.bag_cont.col_tech_rep
         if ratio_mean:
             mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type]
         else:
             mean_list = [self.bag_cont.col_exp]
         cnt_column = 'count'
-        mean_column = self.bag_cont.col_area_sum_total + '_mean_exp'
-        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=False)#(not log2ratio))
+        mean_column = value_column + '_mean_exp'
+        df = self.bag_cont.getlog2ratio(sum_list, mean_list, ratio_only=(not log2ratio))
         # print("Mean STD", np.mean(df.groupby(self.bag_cont.col_level)[self.bag_cont.col_area_sum_total].apply(pd.Series.std)))
         num_exp = df[self.bag_cont.col_exp].nunique()
         # filter links which were not found in x percent of the total experiments
         df = df.groupby([self.bag_cont.col_level]).filter(lambda x: x[self.bag_cont.col_exp].nunique()/num_exp >= exp_percentage/100)
-        df = self.bag_cont.normalize_experiments_by_ref(df, mean_list, log2ratio)
 
         if self.bag_cont.col_domain:
             df = self.bag_cont.get_prot_name_and_link_pos(df)
             df = df.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp, self.bag_cont.col_level])
             df[mean_column] = df.groupby([self.bag_cont.col_exp, self.bag_cont.col_domain])[
-                self.bag_cont.col_area_sum_total].transform('mean')
+                value_column].transform('mean')
             df[cnt_column] = df.groupby([self.bag_cont.col_exp, self.bag_cont.col_domain])[
                 self.bag_cont.col_level].transform('count')
-            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=value_column,
                              hue=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=True,
                              col=self.bag_cont.col_domain, sharex=False, legend=False, color='lightgrey')
         else:
             df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
             df[mean_column] = df.groupby([self.bag_cont.col_exp])[
-                self.bag_cont.col_area_sum_total].transform('mean')
-            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+                value_column].transform('mean')
+            fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=value_column,
                              hue=self.bag_cont.col_level, kind='point', ci='sd', sharey=True,
                              sharex=False, legend=False, color='lightgrey')
         # for ax in fg.axes:
@@ -218,6 +220,8 @@ class PlotMaster(object):
         # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
         #                  col=self.bag_cont.col_level, kind='line', col_wrap=5, ci='sd',
         #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
+
+        # ADDITIONAL PLOT FORMATTING
         backgroundartists = []
         for ax in fg.axes.flat:
             for l in ax.lines + ax.collections:
@@ -227,15 +231,17 @@ class PlotMaster(object):
             order = df[self.bag_cont.col_exp].cat.categories
         else:
             order = sorted(df[self.bag_cont.col_exp].unique())
-        fg.map(sns.pointplot, self.bag_cont.col_exp, self.bag_cont.col_area_sum_total, ci='sd', color='black',
+        # MAP THE MEAN LINE PLOT
+        fg.map(sns.pointplot, self.bag_cont.col_exp, value_column, ci='sd', color='black',
                order=order)
 
         for ax in fg.axes.flat:
             for l in ax.lines + ax.collections:
                 if l not in backgroundartists:
                     l.set_zorder(5)
+        # MAP THE NO. OF OBSERVATIONS GOING INTO THE MEAN
         fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
-        #fg.add_legend()  # in order to properly draw the legend after using fg.map, it has to be drawn after fg.map
+        #fg.add_legend()  # no legend for this plot
         if log2ratio:
             for ax in fg.axes.flat:
                 ax.set_ylabel("log2ratio")
@@ -246,8 +252,6 @@ class PlotMaster(object):
             outname += "_log2ratio"
 
         self.plot_fig(name=outname, g=fg, df=df)
-
-
 
     def plot_domain_overview(self, exp_percentage=50):
         if self.bag_cont.col_domain:
