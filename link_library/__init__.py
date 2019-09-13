@@ -101,7 +101,7 @@ def get_xtract_df(bag_cont, incl_tech=False):
     mean_list = [bag_cont.col_exp, bag_cont.col_link_type]
     exp_ref = input_log2_ref(bag_cont.exp_list)
     df_pval = bag_cont.get_two_sided_ttest(sum_list, sum_list, ref=exp_ref)
-    df_log2 = bag_cont.getlog2ratio(sum_list_log2, mean_list, ref=exp_ref)
+    df_log2 = bag_cont.get_log2ratio(sum_list_log2, mean_list, ref=exp_ref)
     df = pd.merge(df_log2, df_pval, on=[bag_cont.col_level, bag_cont.col_exp], how='inner')
     df = df.sort_values([bag_cont.col_exp, bag_cont.col_level])
     df = df.rename(index=str, columns={bag_cont.col_level: xt_db.uxid_string, bag_cont.col_exp: xt_db.exp_string,

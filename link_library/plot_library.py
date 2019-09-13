@@ -31,8 +31,12 @@ def save_fig(out_name, df=None, out_dir='plots'):
 
 def save_g(fg, out_name, df=None, out_dir='plots', **kwargs):
     out_dir = create_plots_dir(out_dir)
-    fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
-    fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)
+    if 'altair' in str(type(fg)):
+        fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2)
+        fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2)
+    else:
+        fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
+        fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)
     if df is not None:
         df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
 
