@@ -52,10 +52,11 @@ class BagContainer(object):
             self.col_domain = 'domain'
         else:
             self.col_domain = None
+        self.distance_list = []
         if df_dist is not None:
-            self.col_dist = 'distance'
-        else:
-            self.col_dist = None
+            for col in df_dist.columns:
+                if col != self.col_exp and col != self.col_uxid:
+                    self.distance_list.append(col)
         self.dom_prot = 'protein'
         self.dom_range = 'range'
         self.norm_exp = norm_exps
@@ -89,7 +90,7 @@ class BagContainer(object):
             self.level_string = self.uxid_string
             self.col_level = self.col_uxid
         else:
-            print("ERROR: Improper ms1 col_level entered: {0}".format(level))
+            print(f"ERROR: Improper ms1 col_level entered: {level}")
             exit(1)
         self.filter = ""
         if filter is not None:
@@ -100,9 +101,9 @@ class BagContainer(object):
             elif filter.lower() == self.row_loop_link:
                 self.filter = self.row_loop_link
             elif filter:
-                print("ERROR: Improper link filter entered: {0}".format(filter))
+                print(f"ERROR: Improper link filter entered: {filter}")
                 exit(1)
-        self.type = 'BagContainer_{0}'.format(level)
+        self.type = f'BagContainer_{level}'
         # df orig should contain the original columns as given by xquest/xtract (just renamed and a few additions)
         self.df_orig = pd.DataFrame()
         self.df_domains = df_domains
@@ -114,12 +115,12 @@ class BagContainer(object):
         if sel_exp:
             exp_dict = {no: exp for no, exp in enumerate(sorted(self.df_orig[self.col_exp].unique()))}
             print("Please select the experiments you want to exclude")
-            print("{0}".format(exp_dict))
+            print(f"{exp_dict}")
             sel = input("Enter a numbers separated by spaces): ")
             sel = sel.split(" ")
             sel = [int(s) for s in sel]
             sel = [exp_dict[s] for s in exp_dict.keys() if s not in sel]
-            print("The following experiments were selected: {0}".format(sel))
+            print(f"The following experiments were selected: {sel}")
             self.df_orig = self.filter_exp(self.df_orig, sel)
 
         self.df_orig = self.remove_invalid_ids(self.df_orig)
@@ -137,7 +138,7 @@ class BagContainer(object):
             self.df_orig = self.normalize_replicates(self.df_orig)
         if norm_exps == 'yes':
             self.df_orig = self.normalize_experiments(self.df_orig)
-        if self.col_dist:
+        if self.distance_list:
             self.df_orig = self.add_link_distances(self.df_orig, df_dist)
         self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
@@ -235,7 +236,7 @@ class BagContainer(object):
                 print("ERROR: xTract's experiment normalization was specified but the normalized values are not in the bag container. Exiting")
                 exit(1)
         else:
-            print("ERROR: Unknown normalization method specified: {0}. Exiting".format(self.norm_exp))
+            print(f"ERROR: Unknown normalization method specified: {self.norm_exp}. Exiting")
             exit(1)
 
         df = df.rename(index=str, columns={self.exp_string: self.col_exp, self.uid_string: self.col_uid,
@@ -255,16 +256,13 @@ class BagContainer(object):
         # df_abs_pos = df[self.uxid_string].str.split(':', expand=True)
         # let's remove the weight, link type and charge from uid string; so we have the same uids for both container types
         # using regex to match either :heavy or :light and all the following string (.*)
-        df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}).*"
-                                                              .format(self.row_light_string, self.row_heavy_string),
-                                                              "")
+        df[self.uid_string] = df[self.uid_string].str.replace(
+            f":({self.row_light_string}|{self.row_heavy_string}).*", "")
         # doing the same for the link type string
-        df[self.uid_string] = df[self.uid_string].str.replace(":({0}|{1}|{2}).*"
-                                                              .format(self.row_monolink_string,
-                                                                      self.row_xlink_string,
-                                                                      self.row_loop_link), "")
+        df[self.uid_string] = df[self.uid_string].str.replace(
+            f":({self.row_monolink_string}|{self.row_xlink_string}|{self.row_loop_link}).*", "")
         # and again for the charge string
-        df[self.uid_string] = df[self.uid_string].str.replace(":({0}).*".format("::*"), "")
+        df[self.uid_string] = df[self.uid_string].str.replace(f":({'::*'}).*", "")
         return df
 
     def filter_link_type(self, df):
@@ -283,10 +281,10 @@ class BagContainer(object):
             print("ERROR: column \"uxid\" or \"exp_name\" was not found inside the white list file. Exiting")
             exit(1)
         name = set(df[self.col_origin])
-        print("The link whitelist contains {0} entries".format(len(df_white_list)))
-        print("Shape of {0} before filtering via whitelist: {1}.".format(name, df.shape))
+        print(f"The link whitelist contains {len(df_white_list)} entries")
+        print(f"Shape of {name} before filtering via whitelist: {df.shape}.")
         df = pd.merge(df, df_white_list, on=[self.col_uxid, self.col_exp])
-        print("Shape of {0} after filtering via whitelist: {1}.".format(name, df.shape))
+        print(f"Shape of {name} after filtering via whitelist: {df.shape}.")
         return df
 
     def get_group(self, sum_list, mean_list, group_on, log2=False, z_score=False):
@@ -301,9 +299,9 @@ class BagContainer(object):
 
     def remove_invalid_ids(self, df):
         name = set(df[self.col_origin])
-        print("Shape of {0} before filtering invalid ids: {1}.".format(name, df.shape))
+        print(f"Shape of {name} before filtering invalid ids: {df.shape}.")
         df = df.loc[df[self.valid_string] == 1]
-        print("Shape of {0} after filtering invalid ids: {1}.".format(name, df.shape))
+        print(f"Shape of {name} after filtering invalid ids: {df.shape}.")
         return df
 
     def remove_xtract_violations(self, df):
@@ -311,7 +309,7 @@ class BagContainer(object):
         # filtering these two means we get exactly the same results as from the regular bag container
         # removes violations (but no violations are calculated for monolinks)
         df = df.loc[df[self.vio_string] == 0]
-        print("Shape of {0} after removing xTract violations: {1}.".format(name, df.shape))
+        print(f"Shape of {name} after removing xTract violations: {df.shape}.")
         return df
 
     def compute_lh_log2ratio(self, df):
@@ -342,9 +340,9 @@ class BagContainer(object):
     def remove_lh_violations(self, df):
         # xtract filters per uid, experiment and charge state
         name = set(df[self.col_origin])
-        print("Shape of {0} before light/heavy log2 filter: {1}.".format(name, df.shape))
+        print(f"Shape of {name} before light/heavy log2 filter: {df.shape}.")
         df = df[(df[self.col_lh_log2ratio] > -1) & (df[self.col_lh_log2ratio] < 1)]
-        print("Shape of {0} after light/heavy log2 filter: {1}".format(name, df.shape))
+        print(f"Shape of {name} after light/heavy log2 filter: {df.shape}")
         return df
 
     def get_stats(self, sum_list, mean_list, log2=False):
@@ -404,7 +402,7 @@ class BagContainer(object):
         # a[:] = zscore(a, axis=0) # normalize along columns via z-score
         return df, b, a[m]
 
-    def getlog2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False):
+    def get_log2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False):
         if self.col_link_type not in sum_list:
             sum_list.append(self.col_link_type)
         if self.col_link_type not in mean_list:
@@ -431,6 +429,31 @@ class BagContainer(object):
         else:
             df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
         df[self.col_log2ratio_ref] = ref
+        if not keep_ref:
+            df = df.loc[df[self.col_exp] != ref]
+        return df
+
+    def get_distance_delta_df(self, sum_list, mean_list, ref=None):
+        if self.col_link_type not in sum_list:
+            sum_list.append(self.col_link_type)
+        if self.col_link_type not in mean_list:
+            mean_list.append(self.col_link_type)
+        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total, log2=True)
+        grp_list = [self.col_level, self.col_link_type]
+        if not ref:
+            if df[self.col_exp].dtype.name == 'category':
+                ref = df[self.col_exp].cat.categories[0]
+            else:
+                ref = sorted(df[self.col_exp].unique())[0]
+        df_ref = df[df[self.col_exp] == ref]
+        df_ref = df_ref[self.distance_list + grp_list]
+        ref_rename_dict = {n: n+'_exp_ref' for n in self.distance_list}
+        df_ref = df_ref.rename(index=str, columns=ref_rename_dict)
+        df = pd.merge(df, df_ref, on=grp_list)
+        for dist in self.distance_list:
+            df[dist + '_delta'] = df[dist] - df[dist + '_exp_ref']
+        df['distance_ref'] = ref
+        df = df.loc[df[self.col_exp] != ref]
         return df
 
     def getlog2ratio_r(self, sum_list, mean_list, ref):
@@ -557,8 +580,8 @@ class BagContainer(object):
                     elif len(df_dom) == 0:
                         domain = 'Unknown'
                     else:
-                        print("ERROR: Multiple domains found: {0}. Protein: {1}. Position: {2}."
-                              "\nExiting.".format(df_dom.values, prot, pos))
+                        print(
+                            f'ERROR: Multiple domains found: {df_dom.values}. Protein: {prot}. Position: {pos}.\nExiting.')
                         exit(1)
                     domain_list.append(domain)
                 # remove duplicates
@@ -579,11 +602,11 @@ class BagContainer(object):
     # TODO: keep violation columns from xTract for comparison
     def remove_violations(self, df):
         name = set(df[self.col_origin])
-        print("Shape of {0} before filtering zero intensities: {1}.".format(name, df.shape))
+        print(f"Shape of {name} before filtering zero intensities: {df.shape}.")
         df = df[(df[self.col_area_sum_light] > 0) | (df[self.col_area_sum_heavy] > 0)]
-        print("Shape of {0} before filtering lh log2ratio: {1}.".format(name, df.shape))
+        print(f"Shape of {name} before filtering lh log2ratio: {df.shape}.")
         df = df[(df[self.col_lh_log2ratio] < 1) & (df[self.col_lh_log2ratio] > -1)]
-        print("Shape of {0} after filtering: {1}.".format(name, df.shape))
+        print(f"Shape of {name} after filtering: {df.shape}.")
         return df
 
     def divide_int_by_reps(self, df):
@@ -655,7 +678,7 @@ class BagContainer(object):
         num_mono1 = df_new.groupby(link_group_string).filter(lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() >= 1 and x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[link_group_string].nunique()
         num_mono2 = df_new.groupby(link_group_string).filter(lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() == 2 and x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[link_group_string].nunique()
         num_total = df_new[link_group_string].nunique()
-        print("Link groups with 1 monolink: {0} ({1:.0%})".format(num_mono1, num_mono1/num_total))
-        print("Link groups with 2 monolinks: {0} ({1:.0%})".format(num_mono2, num_mono2/num_total))
+        print(f"Link groups with 1 monolink: {num_mono1} ({num_mono1 / num_total:.0%})")
+        print(f"Link groups with 2 monolinks: {num_mono2} ({num_mono2 / num_total:.0%})")
         df_new = filter_link_groups(df_new)
         return df_new
