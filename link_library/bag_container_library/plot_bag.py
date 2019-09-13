@@ -7,6 +7,9 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
 from scipy.stats import norm
 from functools import reduce
+import altair as alt
+import scipy.stats as stats
+
 
 class PlotMaster(object):
 
@@ -36,7 +39,8 @@ class PlotMaster(object):
         df_links = df_links[[self.bag_cont.col_level, self.bag_cont.col_link_type]]
         df_label = df_links.set_index(self.bag_cont.col_level)
         df_label = df_label[self.bag_cont.col_link_type]
-        lut = dict(zip(df_label.unique(), [(129/255, 201/255, 191/255), (80/255, 124/255, 216/255)])) #alternatively: 'cb'
+        # up to 3 colors are defined right now; more are possible
+        lut = dict(zip(df_label.unique(), [(129/255, 201/255, 191/255), (80/255, 124/255, 216/255), (255/255, 221/255, 153/255)])) #alternatively: 'cbr'
         row_colors = df_label.map(lut)
         # impute na values with a downshifted normal distribution
         df, dist_orig, dist_imputed = self.bag_cont.fillna_with_normal_dist(df)
@@ -109,7 +113,7 @@ class PlotMaster(object):
         sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep]
         mean_list = [self.bag_cont.col_exp]
         exp_ref = ll.input_log2_ref(self.bag_cont.exp_list)
-        df = self.bag_cont.getlog2ratio(sum_list, mean_list, ref=exp_ref)
+        df = self.bag_cont.get_log2ratio(sum_list, mean_list, ref=exp_ref)
         df['lowess'] = lw.lowess(df[self.bag_cont.col_log2ratio], df[self.bag_cont.col_log2avg], return_sorted=False)
         df['lowdiff'] = df[self.bag_cont.col_log2ratio]-df['lowess']
         # n-way merge
@@ -135,7 +139,7 @@ class PlotMaster(object):
         exp_ref = ll.input_log2_ref(self.bag_cont.exp_list)
         df_pval = self.bag_cont.get_two_sided_ttest(sum_list, sum_list, ref=exp_ref)
         df_stats = self.bag_cont.get_stats(sum_list, mean_list)
-        df_log2 = self.bag_cont.getlog2ratio(sum_list, mean_list, ref=exp_ref)
+        df_log2 = self.bag_cont.get_log2ratio(sum_list, mean_list, ref=exp_ref)
         # n-way merge
         df = reduce(lambda left, right: pd.merge(left, right, on=[self.bag_cont.col_level, self.bag_cont.col_exp]), [df_stats, df_log2, df_pval])
         df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
@@ -192,7 +196,7 @@ class PlotMaster(object):
             mean_list = [self.bag_cont.col_exp]
         cnt_column = 'count'
         mean_column = value_column + '_mean_exp'
-        df = self.bag_cont.getlog2ratio(sum_list, mean_list, ratio_only=(not log2ratio))
+        df = self.bag_cont.get_log2ratio(sum_list, mean_list, ratio_only=(not log2ratio), keep_ref=True)
         # print("Mean STD", np.mean(df.groupby(self.bag_cont.col_level)[self.bag_cont.col_area_sum_total].apply(pd.Series.std)))
         num_exp = df[self.bag_cont.col_exp].nunique()
         # filter links which were not found in x percent of the total experiments
@@ -321,7 +325,7 @@ class PlotMaster(object):
         df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total)
         df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
         exp_ref = ll.input_log2_ref(self.bag_cont.exp_list)
-        df_log2ratio = self.bag_cont.getlog2ratio(sum_list, mean_list, exp_ref)
+        df_log2ratio = self.bag_cont.get_log2ratio(sum_list, mean_list, exp_ref)
         df[self.bag_cont.col_area_sum_total] = np.log2(df[self.bag_cont.col_area_sum_total])
         ax = sns.boxplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total)
         ax.yaxis.set_major_locator(loc)
@@ -446,7 +450,7 @@ class PlotMaster(object):
 
     def plot_mono_vs_xlink_quant(self):
         link_group_string = "link_group"
-        df = self.bag_cont.get_matching_monos()
+        df = self.bag_cont.get_matching_monos
         df = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_weight_type, self.bag_cont.col_link_type, link_group_string])[self.bag_cont.col_area_sum_total].sum().reset_index()
         df[self.bag_cont.col_area_sum_total] = np.log2(df[self.bag_cont.col_area_sum_total])
         df = df.groupby(
@@ -506,50 +510,97 @@ class PlotMaster(object):
         df_stats = df_stats.groupby(self.bag_cont.col_exp).apply(norm_lowess)
         return df_stats
 
-    def plot_dist_vs_quant(self):
-        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_dist, self.bag_cont.col_weight_type]
-        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_dist]
-        #df = self.bag_cont.df_orig.copy()
-        #dfs = self.get_lowdiff()
-        #df = pd.merge(df, dfs, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+    def plot_dist_vs_quant_log2(self):
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep,
+                    self.bag_cont.col_weight_type]
+        mean_list = [self.bag_cont.col_exp]
+        df_log2 = self.bag_cont.get_log2ratio(sum_list, mean_list)
+        df_dist = self.bag_cont.get_distance_delta_df(sum_list + self.bag_cont.distance_list, mean_list + self.bag_cont.distance_list)
+        df = pd.merge(df_log2, df_dist, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+        for col_dist in self.bag_cont.distance_list:
+            col_dist += '_delta'
+            fg = sns.lmplot(data=df, x=col_dist, y=self.bag_cont.col_log2ratio)
+            #fg.set(xscale='log')
+            self.plot_fig("quant_vs_{0}".format(col_dist), df)
+        fg = sns.heatmap(df[[self.bag_cont.col_log2ratio] + [col for col in df.columns if 'delta' in col]].corr(), annot=True, fmt=".2f", xticklabels=True, yticklabels=True)
+        self.plot_fig("corr_log2ratio_vs_dist", df)
 
-        #df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
-        #    self.bag_cont.col_area_sum_total].transform('sum')
-        #df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
-        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
-        df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[self.bag_cont.col_dist].count() > 0)
-        #df =  df[df[self.bag_cont.col_dist] < 0]
-        #df[self.bag_cont.col_dist] =  abs(df[self.bag_cont.col_dist])
-        fg = sns.lmplot(data=df, x=self.bag_cont.col_dist, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
-        #fg.set(xscale='log')
-        self.plot_fig("dist_vs_quant", df)
+    def plot_dist_vs_quant(self):
+        for col_dist in self.bag_cont.distance_list:
+            sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, col_dist, self.bag_cont.col_weight_type]
+            mean_list = [self.bag_cont.col_exp, col_dist]
+            #df = self.bag_cont.df_orig.copy()
+            #dfs = self.get_lowdiff()
+            #df = pd.merge(df, dfs, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+
+            #df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
+            #    self.bag_cont.col_area_sum_total].transform('sum')
+            #df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
+            df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
+            df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[col_dist].count() > 0)
+            #df =  df[df[col_dist] < 0]
+            #df[col_dist] =  abs(df[col_dist])
+            fg = sns.lmplot(data=df, x=col_dist, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_exp)
+            #fg.set(xscale='log')
+            self.plot_fig("quant_vs_{0}".format(col_dist), df)
+
+    def plot_dist_vs_quant_log2_alt(self):
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep,
+                    self.bag_cont.col_weight_type]
+        mean_list = [self.bag_cont.col_exp]
+        df_log2 = self.bag_cont.get_log2ratio(sum_list, mean_list)
+        df_dist = self.bag_cont.get_distance_delta_df(sum_list + self.bag_cont.distance_list, mean_list + self.bag_cont.distance_list)
+        df = pd.merge(df_log2, df_dist, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+        for col_dist in self.bag_cont.distance_list:
+            col_dist += '_delta'
+            df_merge = self._get_fit_merge_df(df, col_dist, self.bag_cont.col_log2ratio)
+            alt_chart = self._get_alt_lin_fit_chart(df_merge, col_dist, self.bag_cont.col_log2ratio)
+            self.plot_fig("quant_vs_{0}".format(col_dist), df, g=alt_chart)
+        fg = sns.heatmap(df[[self.bag_cont.col_log2ratio] + [col for col in df.columns if 'delta' in col]].corr(), annot=True, fmt=".2f", xticklabels=True, yticklabels=True)
+        self.plot_fig("corr_log2ratio_vs_dist", df)
+
+    def plot_dist_vs_quant_alt(self):
+        for col_dist in self.bag_cont.distance_list:
+            sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, col_dist, self.bag_cont.col_weight_type]
+            mean_list = [self.bag_cont.col_exp, col_dist]
+            df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
+            df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[col_dist].count() > 0)
+            df_merge = self._get_fit_merge_df(df, col_dist, self.bag_cont.col_area_sum_total)
+
+            alt_chart = self._get_alt_lin_fit_chart(df_merge, col_dist, self.bag_cont.col_area_sum_total).facet(
+                column=self.bag_cont.col_exp
+            )#.resolve_scale(x='independent', y='independent')
+            self.plot_fig("quant_vs_{0}".format(col_dist), df=df, g=alt_chart)
 
     def plot_dist_quant_corr(self):
-        sum_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_dist, self.bag_cont.col_weight_type]
-        mean_list = [self.bag_cont.col_level,self.bag_cont.col_exp, self.bag_cont.col_dist]
-        df = self.bag_cont.df_orig.copy()
-        # exp_ref = ll.input_log2_ref(self.bag_cont.exp_list)
-        # df_log2 = self.bag_cont.getlog2ratio(sum_list, mean_list, exp_ref)
-        df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
-            self.bag_cont.col_area_sum_total].transform('sum')
-        df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[
-            self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
-        df[self.bag_cont.col_area_sum_total + '_std'] = df.groupby(mean_list)[
-            self.bag_cont.col_area_sum_total + '_sum'].transform('std')
-        df[self.bag_cont.col_area_sum_total + '_min'] = df.groupby(mean_list)[
-            self.bag_cont.col_area_sum_total + '_sum'].transform('min')
-        df[self.bag_cont.col_area_sum_total + '_max'] = df.groupby(mean_list)[
-            self.bag_cont.col_area_sum_total + '_sum'].transform('max')
-        df[self.bag_cont.col_area_sum_total + '_z'] = (df[self.bag_cont.col_area_sum_total]- df[self.bag_cont.col_area_sum_total + '_mean'])/df[self.bag_cont.col_area_sum_total + '_std']
-        df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[self.bag_cont.col_dist].count() > 0)
-        dfs = self.get_lowdiff()
-        df = pd.merge(df, dfs, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
-        # df = pd.merge(df, df_log2, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
-        df = df[['lowdiff', 'lowess',self.bag_cont.col_dist,self.bag_cont.col_area_sum_total, self.bag_cont.col_area_sum_total + '_sum', self.bag_cont.col_area_sum_total + '_mean', self.bag_cont.col_area_sum_total + '_min', self.bag_cont.col_area_sum_total + '_max', self.bag_cont.col_area_sum_total + '_z']]
-        fg = sns.heatmap(df.corr(), annot=True, fmt=".2f", xticklabels=True, yticklabels=True)
-        self.plot_fig("dist_vs_quant_corr", df)
+        dist_list = self.bag_cont.distance_list
+        for exp in self.bag_cont.exp_list:
+            sum_list = [self.bag_cont.col_level, self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_weight_type] + dist_list
+            mean_list = [self.bag_cont.col_level, self.bag_cont.col_exp] + dist_list
+            df = self.bag_cont.df_orig.copy()
+            df = df[df[self.bag_cont.col_exp] == exp]
+            # exp_ref = ll.input_log2_ref(self.bag_cont.exp_list)
+            # df_log2 = self.bag_cont.getlog2ratio(sum_list, mean_list, exp_ref)
+            df[self.bag_cont.col_area_sum_total + '_sum'] = df.groupby(sum_list)[
+                self.bag_cont.col_area_sum_total].transform('sum')
+            df[self.bag_cont.col_area_sum_total + '_mean'] = df.groupby(mean_list)[
+                self.bag_cont.col_area_sum_total + '_sum'].transform('mean')
+            df[self.bag_cont.col_area_sum_total + '_std'] = df.groupby(mean_list)[
+                self.bag_cont.col_area_sum_total + '_sum'].transform('std')
+            df[self.bag_cont.col_area_sum_total + '_min'] = df.groupby(mean_list)[
+                self.bag_cont.col_area_sum_total + '_sum'].transform('min')
+            df[self.bag_cont.col_area_sum_total + '_max'] = df.groupby(mean_list)[
+                self.bag_cont.col_area_sum_total + '_sum'].transform('max')
+            df[self.bag_cont.col_area_sum_total + '_z'] = (df[self.bag_cont.col_area_sum_total]- df[self.bag_cont.col_area_sum_total + '_mean'])/df[self.bag_cont.col_area_sum_total + '_std']
+            #df = df.groupby(self.bag_cont.col_level).filter(lambda x: x[self.bag_cont.col_dist].count() > 0)
+            dfs = self.get_lowdiff()
+            df = pd.merge(df, dfs, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+            # df = pd.merge(df, df_log2, on=[self.bag_cont.col_level, self.bag_cont.col_exp])
+            df = df[dist_list + ['lowdiff', 'lowess',self.bag_cont.col_area_sum_total, self.bag_cont.col_area_sum_total + '_sum', self.bag_cont.col_area_sum_total + '_mean', self.bag_cont.col_area_sum_total + '_min', self.bag_cont.col_area_sum_total + '_max', self.bag_cont.col_area_sum_total + '_z']]
+            fg = sns.heatmap(df.corr(), annot=True, fmt=".2f", xticklabels=True, yticklabels=True)
+            self.plot_fig("dist_vs_quant_corr_{0}".format(exp), df)
 
-    def plot_fig(self, name, df=None, extra='', g = None, **kwargs):
+    def plot_fig(self, name, df=None, extra='', g=None, **kwargs):
         filter = ""
         if self.bag_cont.filter:
             filter = '_' + self.bag_cont.filter
@@ -561,3 +612,49 @@ class PlotMaster(object):
         else:
             plib.save_g(g, save_string, df=df, out_dir=self.out_folder, **kwargs)
         plt.clf()
+
+    def _lin_func(self, x, slope, intercept):
+        return intercept + x * slope
+
+    def _get_fit_df(self, x, x_axis, y_axis):
+        slope, intercept, rval, pval, err = stats.linregress(x[x_axis], x[y_axis])
+        return pd.Series({'slope': slope, 'intercept': intercept, 'rval': rval, 'pval': pval, 'err': err})
+
+    def _get_fit_merge_df(self, df, x_axis, y_axis):
+        df_fit = df.groupby(self.bag_cont.col_exp).apply(lambda x: self._get_fit_df(x, x_axis, y_axis)).reset_index()
+        df_fit_vals = df.groupby(self.bag_cont.col_exp).apply(lambda x: self._get_fit_val_df(x, df_fit, x_axis))
+        df_merge = pd.merge(df, df_fit_vals, on=[self.bag_cont.col_level, self.bag_cont.col_exp], how='inner')
+        return df_merge
+
+    def _get_fit_val_df(self, x, df_fit, x_axis):
+        exp = x[self.bag_cont.col_exp].iloc[0]
+        df_sel = df_fit[df_fit[self.bag_cont.col_exp] == exp]
+        # lin_fit_x = np.linspace(x[col_dist].min(), x[col_dist].max(), len(x))
+        lin_fit_y = self._lin_func(x[x_axis], df_sel['slope'].iloc[0], df_sel['intercept'].iloc[0])
+        return pd.DataFrame(
+            {'yfit': lin_fit_y, self.bag_cont.col_level: x[self.bag_cont.col_level], self.bag_cont.col_exp: exp,
+             'rval': df_sel['rval'].iloc[0], 'pval': df_sel['pval'].iloc[0], 'err': df_sel['err'].iloc[0]})
+
+    def _get_alt_lin_fit_chart(self, df, x_axis, y_axis):
+        alt_point = alt.Chart(df).mark_circle(color='black').encode(
+            x=alt.X(x_axis, scale=alt.Scale(zero=False), axis=alt.Axis(title=x_axis)),
+            y=alt.Y(y_axis, scale=alt.Scale(zero=False),
+                    axis=alt.Axis(title=y_axis)),
+        )
+
+        alt_lin_fit = alt_point.mark_line().encode(
+            y=alt.Y('yfit'),
+        )
+        rval = 'rval'
+        pval = 'pval'
+        alt_text_rval = alt_point.mark_text(dy=0).encode(
+            x=f'max({x_axis})',  # alt.value(df_merge[col_dist].max()),#
+            y=alt.value(df[y_axis].max()),
+            # f'max({self.bag_cont.col_area_sum_total})', #
+            text=alt.Text('label:N'),
+        ).transform_calculate(label=f'"{rval}: " + format(datum.{rval}, ".2f")')
+
+        alt_text_pval = alt_text_rval.mark_text(dy=10).encode(
+        ).transform_calculate(label=f'"{pval}: " + format(datum.{pval}, ".2f")')
+
+        return alt.layer(alt_point, alt_lin_fit, alt_text_rval, alt_text_pval)
