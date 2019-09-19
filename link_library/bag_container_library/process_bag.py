@@ -529,7 +529,7 @@ class BagContainer(object):
             # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
         df = df.replace(0, np.nan)
         # df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
-        df = df.groupby([self.col_level, self.col_link_type]).apply(get_ttest).reset_index()
+        df = df.groupby([self.col_level]).apply(get_ttest).reset_index()
         df = df.dropna()
         df = df.groupby([self.col_exp]).apply(get_fdr).reset_index(drop=True)
         # df[self.col_fdr] = multicomp.multipletests(np.array(df[self.col_pval]), method='fdr_bh')[1]
