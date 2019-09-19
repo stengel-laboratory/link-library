@@ -482,6 +482,10 @@ class BagContainer(object):
         return df
 
     def get_two_sided_ttest(self, sum_list, mean_list, ref):
+        if self.col_link_type not in sum_list:
+            sum_list.append(self.col_link_type)
+        if self.col_link_type not in mean_list:
+            mean_list.append(self.col_link_type)
         # function takes a dataframe grouped by ids and calculates pvalues against a reference
         def get_ttest(x):
             # takes two group values, determines whether their variances are equal (via levene test)
