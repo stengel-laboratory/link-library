@@ -1,7 +1,9 @@
 import pandas as pd
 import time
 from functools import reduce
-
+from ._version import get_versions
+__version__ = get_versions()['version']
+del get_versions
 
 
 class xQuestDB(object):

@@ -6,7 +6,7 @@ from statsmodels.stats import weightstats
 from scipy.stats import levene
 from scipy.stats import zscore
 
-
+# TODO: right now log2ratio is grouped by link type but pvals are not leading to different results in case of loop links
 # TODO: create the filter options for the df_orig; eventually replace the df_new completely
 # TODO: check whether xTract filters for the peptide fdr or if it's already done for the bag container
 # TODO: add list of columns to preserve; i.e. get_pivot/get_group should always preserve uxid, uid and violations
