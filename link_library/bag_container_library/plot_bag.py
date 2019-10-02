@@ -43,14 +43,15 @@ class PlotMaster(object):
         lut = dict(zip(df_label.unique(), [(129/255, 201/255, 191/255), (80/255, 124/255, 216/255), (255/255, 221/255, 153/255)])) #alternatively: 'cbr'
         row_colors = df_label.map(lut)
         # impute na values with a downshifted normal distribution
-        df, dist_orig, dist_imputed = self.bag_cont.fillna_with_normal_dist(df)
-        sns.distplot(dist_orig, kde=True, fit=norm)
+        df = self.bag_cont.fillna_with_normal_dist(df)
+        # df, dist_orig, dist_imputed = self.bag_cont.fillna_with_normal_dist(df)
+        # sns.distplot(dist_orig, kde=True, fit=norm)
         self.plot_fig(name='cluster', extra="orig_dist")
         plt.clf()
-        if len(dist_imputed) > 1:
-            sns.distplot(dist_imputed, kde=True, fit=norm)
-            self.plot_fig(name='cluster', extra="imputed_dist")
-        print("Non imputed values: {0}. Imputed values: {1}".format(len(dist_orig),len(dist_imputed)))
+        # if len(dist_imputed) > 1:
+        #     sns.distplot(dist_imputed, kde=True, fit=norm)
+        #     self.plot_fig(name='cluster', extra="imputed_dist")
+        # print("Non imputed values: {0}. Imputed values: {1}".format(len(dist_orig),len(dist_imputed)))
         cg = sns.clustermap(data=df,cmap="mako_r",metric='canberra', row_colors=row_colors, xticklabels=True)
         cluster_formatter(cg, df_links)
         self.plot_fig(name="cluster", g=cg, dpi=300, df=df)
