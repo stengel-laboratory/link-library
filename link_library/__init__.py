@@ -93,18 +93,23 @@ def timeit(f):
     return wrap
 
 
-def get_xtract_df(bag_cont, incl_tech=False):
+def get_xtract_df(bag_cont, incl_tech=False, exp_ref=None):
     xt_db = xTractDB()
     if incl_tech:
-        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type, bag_cont.col_tech_rep]
+        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type, bag_cont.col_tech_rep, bag_cont.col_link_type]
     else:
-        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type]
+        sum_list = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_weight_type, bag_cont.col_link_type]
     sum_list_log2 = [bag_cont.col_exp, bag_cont.col_bio_rep, bag_cont.col_tech_rep, bag_cont.col_weight_type, bag_cont.col_link_type]
     mean_list = [bag_cont.col_exp, bag_cont.col_link_type]
-    exp_ref = input_log2_ref(bag_cont.exp_list)
-    df_pval = bag_cont.get_two_sided_ttest(sum_list, sum_list, ref=exp_ref)
+    if exp_ref:
+        if exp_ref not in bag_cont.exp_list:
+            print(f"Warning: provided reference experiment {exp_ref} was not found. Please provide a valid reference")
+            exp_ref = None
+    if not exp_ref:
+        exp_ref = input_log2_ref(bag_cont.exp_list)
     df_log2 = bag_cont.get_log2ratio(sum_list_log2, mean_list, ref=exp_ref)
-    df = pd.merge(df_log2, df_pval, on=[bag_cont.col_level, bag_cont.col_exp], how='inner')
+    df_pval = bag_cont.get_two_sided_ttest(sum_list, sum_list, ref=exp_ref)
+    df = pd.merge(df_log2, df_pval, on=[bag_cont.col_level, bag_cont.col_exp, bag_cont.col_link_type], how='inner')
     df = df.sort_values([bag_cont.col_exp, bag_cont.col_level])
     df = df.rename(index=str, columns={bag_cont.col_level: xt_db.uxid_string, bag_cont.col_exp: xt_db.exp_string,
                                        bag_cont.col_log2ratio_ref: xt_db.exp_ref_string,
