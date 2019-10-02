@@ -6,6 +6,7 @@ from statsmodels.stats import weightstats
 from scipy.stats import levene
 from scipy.stats import zscore
 
+
 # TODO: right now log2ratio is grouped by link type but pvals are not leading to different results in case of loop links
 # TODO: create the filter options for the df_orig; eventually replace the df_new completely
 # TODO: check whether xTract filters for the peptide fdr or if it's already done for the bag container
@@ -13,8 +14,9 @@ from scipy.stats import zscore
 
 class BagContainer(object):
 
-    def __init__(self, level, df_list, filter=None, sel_exp=False, impute_missing=False, norm_exps='yes', norm_reps=False,
-                 df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh','xt')):
+    def __init__(self, level, df_list, filter=None, sel_exp=False, impute_missing=False, norm_exps='yes',
+                 norm_reps=False,
+                 df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh', 'xt')):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
@@ -177,11 +179,12 @@ class BagContainer(object):
         # as an alternative to the mean one could also use a reference experiment (like xTract does) or the max() or the min()
         exp_ref_factor = df_norm[norm_string].mean()
         df_norm[norm_string] /= exp_ref_factor
-        df_norm[norm_string_inverted] = df_norm[norm_string]**-1
+        df_norm[norm_string_inverted] = df_norm[norm_string] ** -1
         print("\nExperiment abundance normalization found the following normalization factors:")
         print(df_norm, '\n')
         for exp in df_norm[self.col_exp]:
-            df.loc[df[self.col_exp] == exp,[self.col_area_sum_total]] /= df_norm.loc[df_norm[self.col_exp] == exp,[norm_string]].values[0]
+            df.loc[df[self.col_exp] == exp, [self.col_area_sum_total]] /= \
+                df_norm.loc[df_norm[self.col_exp] == exp, [norm_string]].values[0]
         print("Experiment areas after normalization:")
         print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
         return df
@@ -233,7 +236,8 @@ class BagContainer(object):
                 print("Experiment Normalization: Using values calculated by xTract")
             # if the string does not exist we assume something is not right
             else:
-                print("ERROR: xTract's experiment normalization was specified but the normalized values are not in the bag container. Exiting")
+                print(
+                    "ERROR: xTract's experiment normalization was specified but the normalized values are not in the bag container. Exiting")
                 exit(1)
         else:
             print(f"ERROR: Unknown normalization method specified: {self.norm_exp}. Exiting")
@@ -297,6 +301,19 @@ class BagContainer(object):
             df[self.col_area_z_score] = df.groupby([self.col_level])[self.col_area_sum_total].transform(zscore)
         return df
 
+    # TODO: Create global function for imputed values so that they are consistent
+    def get_imputed_df(self, incl_tech=False):
+        if incl_tech:
+            sum_list = [self.col_exp, self.col_bio_rep, self.col_weight_type, self.col_tech_rep,
+                        self.col_link_type]
+        else:
+            sum_list = [self.col_exp, self.col_bio_rep, self.col_weight_type, self.col_link_type]
+        df = pd.DataFrame(self.df_orig)
+        df = df.groupby(level=self.col_link_type, axis=1).apply(
+            lambda x: self.fillna_with_normal_dist(x, log2=False))
+        df.columns = df.columns.droplevel(0)
+        df.index.name = self.col_level
+
     def remove_invalid_ids(self, df):
         name = set(df[self.col_origin])
         print(f"Shape of {name} before filtering invalid ids: {df.shape}.")
@@ -327,6 +344,7 @@ class BagContainer(object):
                 x[self.col_area_sum_light] = np.nan
                 x[self.col_area_sum_heavy] = np.nan
             return x
+
         df = df.groupby([self.col_uid, self.col_exp, self.col_charge, self.col_link_type]).apply(get_lh_ratio)
         return df
 
@@ -357,7 +375,7 @@ class BagContainer(object):
         #                      aggfunc=np.sum))
 
         df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].agg([pd.Series.mean, pd.Series.std])
-        df['snr'] = df['mean']/df['std']
+        df['snr'] = df['mean'] / df['std']
         # 'iqr': lambda x: x.quantile(0.75)-x.quantile(0.25),  'median': pd.Series.median, 'q25': lambda x: x.quantile(0.25), 'q75': lambda y: y.quantile(0.75)})
 
         df = df.dropna()
@@ -384,6 +402,8 @@ class BagContainer(object):
         # the underlying distribution is log-normal; log2 makes it normal
         shift = 1.8
         width = 0.3
+        df = df.dropna(how='all')#.filter(
+            # lambda x: x.isna().sum(axis=1) != len(x.columns))
         df = df.replace(0, np.nan)
         df = np.log2(df)
         a = df.values
@@ -400,7 +420,7 @@ class BagContainer(object):
         # df_mean_diff =  df.mean().mean(level=self.col_exp) - df.mean()
         # df = df + df_mean_diff
         # a[:] = zscore(a, axis=0) # normalize along columns via z-score
-        return df, b, a[m]
+        return df#, b, a[m]
 
     def get_log2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False):
         if self.col_link_type not in sum_list:
@@ -408,12 +428,20 @@ class BagContainer(object):
         if self.col_link_type not in mean_list:
             mean_list.append(self.col_link_type)
         df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
+        # print(df.columns)
+        # exit()
         if self.impute_missing:
-            df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
+            df = df.groupby(level=self.col_link_type, axis=1).apply(
+               lambda x: self.fillna_with_normal_dist(x, log2=False))
+            df.columns = df.columns.droplevel(0)
+            df.index.name = self.col_level
+            # df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
         else:
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
             df = df.dropna()
+        # df = df.groupby([self.col_link_type, self.col_level]).filter(
+        #     lambda x: x[self.col_area_sum_total].isna().sum() != len(x))
         if not ref:
             if df[self.col_exp].dtype.name == 'category':
                 ref = df[self.col_exp].cat.categories[0]
@@ -447,7 +475,7 @@ class BagContainer(object):
                 ref = sorted(df[self.col_exp].unique())[0]
         df_ref = df[df[self.col_exp] == ref]
         df_ref = df_ref[self.distance_list + grp_list]
-        ref_rename_dict = {n: n+'_exp_ref' for n in self.distance_list}
+        ref_rename_dict = {n: n + '_exp_ref' for n in self.distance_list}
         df_ref = df_ref.rename(index=str, columns=ref_rename_dict)
         df = pd.merge(df, df_ref, on=grp_list)
         for dist in self.distance_list:
@@ -462,7 +490,7 @@ class BagContainer(object):
                 x[self.col_area_sum_total] / x[self.col_area_sum_total].loc[x[self.col_bio_rep] == ref].values[0]))
             log2col = log2col.rename(self.col_log2ratio)
             log2avgcol = pd.Series(np.log2(
-                x[self.col_area_sum_total] * x[self.col_area_sum_total].loc[x[self.col_bio_rep] == ref].values[0])/2)
+                x[self.col_area_sum_total] * x[self.col_area_sum_total].loc[x[self.col_bio_rep] == ref].values[0]) / 2)
             log2avgcol = log2avgcol.rename(self.col_log2avg)
             df = pd.concat([x, log2col, log2avgcol], axis=1)
             kwargs = {self.col_log2ratio_ref: ref}
@@ -472,12 +500,14 @@ class BagContainer(object):
         df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
         if self.impute_missing:
             df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp, self.col_bio_rep])
+            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values(
+                [self.col_level, self.col_exp, self.col_bio_rep])
         else:
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp, self.col_bio_rep])
+            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values(
+                [self.col_level, self.col_exp, self.col_bio_rep])
             # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
         df = df.groupby([self.col_exp, self.col_level]).apply(get_loggi).reset_index(drop=True)
-        df = df.drop(columns=[self.col_area_sum_total]) # makes no sense to return this column for a single experiment
+        df = df.drop(columns=[self.col_area_sum_total])  # makes no sense to return this column for a single experiment
         df = df.loc[df[self.col_bio_rep] != ref]
         return df
 
@@ -490,7 +520,7 @@ class BagContainer(object):
                 if not np.isnan(np.var(vals_exp)) and not np.isnan(np.var(vals_ref)):
                     eq_var_pval = levene(vals_exp, vals_ref)[1]
                     if eq_var_pval > 0.01:
-                        var ='pooled'
+                        var = 'pooled'
                     else:
                         var = 'unequal'
                         # print("unequal_ref\n", vals_ref,)
@@ -499,14 +529,16 @@ class BagContainer(object):
                     return weightstats.ttest_ind(vals_exp, vals_ref, usevar=var)[1]
                 else:
                     return np.nan
+
             # y = x.groupby(self.col_exp).apply(lambda t: print("A\n", t[self.col_area_sum_total] ,"\nB\n", x[self.col_area_sum_total].loc[
             #                                                                                      x[
             #                                                                                          self.col_exp] == ref]))
             # x_ref = x[x[self.col_exp == ref]]
             # x_exp = x[x[self.col_exp != ref]]
-            y = x.groupby(self.col_exp).apply(lambda t: pd.Series({self.col_pval:compare_variances(t[self.col_area_sum_total],
-                                                                                             x[self.col_area_sum_total].loc[
-                                                                                                 (x[self.col_exp] == ref)])}))
+            y = x.groupby(self.col_exp).apply(
+                lambda t: pd.Series({self.col_pval: compare_variances(t[self.col_area_sum_total],
+                                                                      x[self.col_area_sum_total].loc[
+                                                                          (x[self.col_exp] == ref)])}))
             return y
 
         def get_fdr(x):
@@ -516,16 +548,26 @@ class BagContainer(object):
             x = x.assign(**{self.col_fdr: qvals})
             return x
 
+        # pivot creates missing entries;a peptide has to exist only in one replicate in one experiment and one link type
         df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
         if self.impute_missing:
-            df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
+            # df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
+            df = df.groupby(level=self.col_link_type, axis=1).apply(
+                lambda x: self.fillna_with_normal_dist(x, log2=False))
+            df.columns = df.columns.droplevel(0)
+            df.index.name = self.col_level
+            # df = self.fillna_with_normal_dist(df, log2=False)
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
         else:
             df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
             # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
+        # this removes fake peptides created by the pivot; i.e. all petides for one link are NANs
+        df = df.groupby([self.col_link_type, self.col_level]).filter(
+            lambda x: x[self.col_area_sum_total].isna().sum() != len(x))
+        # replace NAN intensities (i.e those created by the pivot) with zero
         df = df.replace(0, np.nan)
         # df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
-        df = df.groupby([self.col_level]).apply(get_ttest).reset_index()
+        df = df.groupby([self.col_link_type, self.col_level]).apply(get_ttest).reset_index()
         df = df.dropna()
         df = df.groupby([self.col_exp]).apply(get_fdr).reset_index(drop=True)
         # df[self.col_fdr] = multicomp.multipletests(np.array(df[self.col_pval]), method='fdr_bh')[1]
@@ -649,7 +691,7 @@ class BagContainer(object):
             return df
 
         def find_associated_link(x, df_monos):
-            def is_equal(a,b):  # given two links a and b check whether they link the same protein and position
+            def is_equal(a, b):  # given two links a and b check whether they link the same protein and position
                 prots_a = (a[prot_string].iloc[0])
                 pos_a = (a[pos_string].iloc[0])
                 prot_pos_a = set(zip(prots_a, pos_a))  # put prot name and pos into tuple for easy set intersection
@@ -667,16 +709,24 @@ class BagContainer(object):
                 tmp[link_group_string] = x[link_group_string].iloc[0]
 
                 # x[associated_link_string] = [tmp[uid_string].values]  # assignment is buggy and not needed anyway
-                x = pd.concat([x,tmp], sort=True)
+                x = pd.concat([x, tmp], sort=True)
 
             return x
 
-        df_xlinks = df[df[self.col_link_type] == self.row_xlink_string].copy()  # using a copy since I set values in the next line
+        df_xlinks = df[
+            df[self.col_link_type] == self.row_xlink_string].copy()  # using a copy since I set values in the next line
         df_xlinks = df_xlinks.groupby(self.col_uxid).apply(renumber_groups)
         df_monos = df[df[self.col_link_type] == self.row_monolink_string]
-        df_new = df_xlinks.groupby(self.col_uxid).apply(lambda x: find_associated_link(x, df_monos)).reset_index(drop=True)
-        num_mono1 = df_new.groupby(link_group_string).filter(lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() >= 1 and x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[link_group_string].nunique()
-        num_mono2 = df_new.groupby(link_group_string).filter(lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() == 2 and x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[link_group_string].nunique()
+        df_new = df_xlinks.groupby(self.col_uxid).apply(lambda x: find_associated_link(x, df_monos)).reset_index(
+            drop=True)
+        num_mono1 = df_new.groupby(link_group_string).filter(
+            lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() >= 1 and
+                      x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[
+            link_group_string].nunique()
+        num_mono2 = df_new.groupby(link_group_string).filter(
+            lambda x: x[x[self.col_link_type] == self.row_monolink_string][self.col_uxid].nunique() == 2 and
+                      x[x[self.col_link_type] == self.row_xlink_string][self.col_uxid].nunique() == 1)[
+            link_group_string].nunique()
         num_total = df_new[link_group_string].nunique()
         print(f"Link groups with 1 monolink: {num_mono1} ({num_mono1 / num_total:.0%})")
         print(f"Link groups with 2 monolinks: {num_mono2} ({num_mono2 / num_total:.0%})")
