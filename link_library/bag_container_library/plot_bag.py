@@ -17,6 +17,7 @@ class PlotMaster(object):
         self.out_folder = out_folder
         self.bag_cont = bag_cont
 
+    # TODO: don't get the imputed values directly from fillna; rather implement a proper global imputation
     def plot_clustermap(self):
         def cluster_formatter(cg, df_links):
             # create invisible plot to create a legend for the row labeling; adapted from https://stackoverflow.com/a/27992943
@@ -155,12 +156,15 @@ class PlotMaster(object):
                           xmax=df[self.bag_cont.col_log2ratio].max(), label="qval=0.05", colors=['purple'])
         self.plot_fig(name="log2ratio", g=fg, df=df)
 
-    def plot_link_overview(self, exp_percentage=50):
-        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep] #self.bag_cont.col_tech_rep
-        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type]
+    def plot_link_overview(self, exp_percentage=50, convert_to_log2=True):
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type,
+                    self.bag_cont.col_tech_rep, self.bag_cont.col_link_type] #self.bag_cont.col_tech_rep
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type,
+                     self.bag_cont.col_link_type]
         cnt_column = 'count'
         mean_column = self.bag_cont.col_area_sum_total + '_mean'
-        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=True)
+        outname = "link_overview"
+        df = self.bag_cont.get_group(sum_list, mean_list, self.bag_cont.col_area_sum_total, log2=convert_to_log2)
         # print("Mean STD", np.mean(df.groupby(self.bag_cont.col_level)[self.bag_cont.col_area_sum_total].apply(pd.Series.std)))
         num_exp = df[self.bag_cont.col_exp].nunique()
         # filter links which were not found in x percent of the total experiments
@@ -184,17 +188,20 @@ class PlotMaster(object):
 
         fg.map(plib.map_point, self.bag_cont.col_exp, mean_column, cnt_column)
         fg.add_legend()  # in order to properly draw the legend after using fg.map, it has to be drawn after fg.map
-        self.plot_fig(name="link_overview", g=fg, df=df)
+        if not convert_to_log2:
+            outname += "_non_log2"
+        self.plot_fig(name=outname, g=fg, df=df)
 
     def plot_domain_single_link(self, exp_percentage=50, ratio_mean=False, log2ratio=False):
         value_column = self.bag_cont.col_ratio
         if log2ratio:
             value_column = self.bag_cont.col_log2ratio
-        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type, self.bag_cont.col_tech_rep] #self.bag_cont.col_tech_rep
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type,
+                    self.bag_cont.col_tech_rep, self.bag_cont.col_link_type] #self.bag_cont.col_tech_rep
         if ratio_mean:
             mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type]
         else:
-            mean_list = [self.bag_cont.col_exp]
+            mean_list = [self.bag_cont.col_exp, self.bag_cont.col_link_type]
         cnt_column = 'count'
         mean_column = value_column + '_mean_exp'
         df = self.bag_cont.get_log2ratio(sum_list, mean_list, ratio_only=(not log2ratio), keep_ref=True)
