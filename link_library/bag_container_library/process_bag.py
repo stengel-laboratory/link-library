@@ -281,13 +281,15 @@ class BagContainer(object):
         return df
 
     def filter_linky_by_whitelist(self, df, df_white_list):
+        # uxid and and exp are mandatory; further columns are possible but optional
         if self.col_uxid not in df_white_list or self.col_exp not in df_white_list:
-            print("ERROR: column \"uxid\" or \"exp_name\" was not found inside the white list file. Exiting")
+            print(f"ERROR: column \"{self.col_uxid}\" or \"{self.col_exp}\" was"
+                  f" not found inside the white list file. Exiting")
             exit(1)
         name = set(df[self.col_origin])
         print(f"The link whitelist contains {len(df_white_list)} entries")
         print(f"Shape of {name} before filtering via whitelist: {df.shape}.")
-        df = pd.merge(df, df_white_list, on=[self.col_uxid, self.col_exp])
+        df = pd.merge(df, df_white_list, on=df_white_list.columns)
         print(f"Shape of {name} after filtering via whitelist: {df.shape}.")
         return df
 
@@ -402,8 +404,8 @@ class BagContainer(object):
         # the underlying distribution is log-normal; log2 makes it normal
         shift = 1.8
         width = 0.3
-        df = df.dropna(how='all')#.filter(
-            # lambda x: x.isna().sum(axis=1) != len(x.columns))
+        # rows which only contain NaNs are dropped
+        df = df.dropna(how='all')
         df = df.replace(0, np.nan)
         df = np.log2(df)
         a = df.values
