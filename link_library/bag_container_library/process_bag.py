@@ -289,7 +289,7 @@ class BagContainer(object):
         name = set(df[self.col_origin])
         print(f"The link whitelist contains {len(df_white_list)} entries")
         print(f"Shape of {name} before filtering via whitelist: {df.shape}.")
-        df = pd.merge(df, df_white_list, on=df_white_list.columns)
+        df = pd.merge(df, df_white_list, on=list(df_white_list.columns))
         print(f"Shape of {name} after filtering via whitelist: {df.shape}.")
         return df
 
