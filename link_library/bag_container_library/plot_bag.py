@@ -177,7 +177,7 @@ class PlotMaster(object):
             df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
         fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total, col=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False, hue=self.bag_cont.col_domain, sharex=False, legend=False)
         # force scientific notation on y-axis for the original distribution (which is in the range of 1e7 to 1e10)
-        if convert_to_log2:
+        if not convert_to_log2:
             for ax in fg.axes.flat:
                 ax.ticklabel_format(style='sci', axis='y')
         # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
