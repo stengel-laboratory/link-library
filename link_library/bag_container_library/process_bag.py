@@ -15,8 +15,7 @@ from scipy.stats import zscore
 class BagContainer(object):
 
     def __init__(self, level, df_list, filter=None, sel_exp=False, impute_missing=False, norm_exps='yes',
-                 norm_reps=False,
-                 df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh', 'xt')):
+                 norm_reps=False, df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh', 'xt')):
         self.impute_missing = impute_missing
         self.col_uid = "uid"
         self.col_uxid = "uxid"
@@ -282,12 +281,17 @@ class BagContainer(object):
 
     def filter_linky_by_whitelist(self, df, df_white_list):
         # uxid and and exp are mandatory; further columns are possible but optional
-        if self.col_uxid not in df_white_list or self.col_exp not in df_white_list:
-            print(f"ERROR: column \"{self.col_uxid}\" or \"{self.col_exp}\" was"
-                  f" not found inside the white list file. Exiting")
-            exit(1)
+        for col in df_white_list.columns:
+            if col not in df.columns:
+                print(f"ERROR: column \"{col}\" was"
+                      f" found inside the whitelist but not in bag container. Exiting")
+                exit(1)
+            for entry in df_white_list[col].unique():
+                if entry not in df[col].unique():
+                    print(f"WARNING: the whitelist column {col} contains an entry called {entry} which is not a valid "
+                          f"entry in the bag container. The row containing this entry will be IGNORED")
         name = set(df[self.col_origin])
-        print(f"The link whitelist contains {len(df_white_list)} entries")
+        print(f"The whitelist contains {len(df_white_list)} entries")
         print(f"Shape of {name} before filtering via whitelist: {df.shape}.")
         df = pd.merge(df, df_white_list, on=list(df_white_list.columns))
         print(f"Shape of {name} after filtering via whitelist: {df.shape}.")
