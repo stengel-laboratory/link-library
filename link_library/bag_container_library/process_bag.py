@@ -49,6 +49,8 @@ class BagContainer(object):
         self.col_std = 'std'
         self.col_proteins = 'proteins'
         self.col_positions = 'link_positions'
+        self.col_reaction_state = 'reaction_state'
+        self.col_imputed = 'imputed'
         if df_domains is not None:
             self.col_domain = 'domain'
         else:
@@ -68,6 +70,8 @@ class BagContainer(object):
         self.row_light_string = 'light'
         self.row_heavy_string = 'heavy'
         self.row_details_string = 'details'
+        self.row_quenched = 'quenched'
+        self.row_hydrolyzed = 'hydrolyzed'
         self.cont_type = self.row_details_string
         self.uxid_string = 'b_peptide_uxID'
         self.uid_string = 'b_peptide_uID'
@@ -123,7 +127,6 @@ class BagContainer(object):
             sel = [exp_dict[s] for s in exp_dict.keys() if s not in sel]
             print(f"The following experiments were selected: {sel}")
             self.df_orig = self.filter_exp(self.df_orig, sel)
-
         self.df_orig = self.remove_invalid_ids(self.df_orig)
         self.df_orig = self.compute_lh_log2ratio(self.df_orig)
         if 'lh' in vio_list:
@@ -141,6 +144,14 @@ class BagContainer(object):
             self.df_orig = self.normalize_experiments(self.df_orig)
         if self.distance_list:
             self.df_orig = self.add_link_distances(self.df_orig, df_dist)
+        self.df_orig = self.get_reaction_state(self.df_orig)
+        self.minimal_groups = [self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_weight_type, self.col_link_type]
+        if self.col_reaction_state in self.df_orig.columns:
+            self.minimal_groups.append(self.col_reaction_state)
+        self.df_orig = self.df_orig.groupby([self.col_level] + self.minimal_groups)[self.col_area_sum_total].sum().reset_index()
+        # print(self.df_minimal)
+        if self.impute_missing:
+            self.df_orig = self.get_imputed_df(self.df_orig)
         self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
         if sortlist is not None:
@@ -154,6 +165,7 @@ class BagContainer(object):
         self.bio_rep_num = len(self.bio_rep_list)
         self.tech_rep_list = self.df_orig[self.col_tech_rep].unique()
         self.tech_rep_num = len(self.tech_rep_list)
+
         self.print_info(self.df_orig)
         # self.df_orig[self.col_area_sum_total] = np.log2(self.df_orig[self.col_area_sum_total])
         # self.df_orig = self.divide_int_by_reps(self.df_orig)
@@ -299,26 +311,16 @@ class BagContainer(object):
 
     def get_group(self, sum_list, mean_list, group_on, log2=False, z_score=False):
         df = pd.DataFrame(self.df_orig)
-        df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
-        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
+        group_on_list = [group_on]
+        if self.col_imputed in df.columns:
+            group_on_list.append(self.col_imputed)
+        df = df.groupby([self.col_level] + sum_list)[group_on_list].sum().reset_index()
+        df = df.groupby([self.col_level] + mean_list)[group_on_list].mean().reset_index()
         if log2 or z_score:
             df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         if z_score:
             df[self.col_area_z_score] = df.groupby([self.col_level])[self.col_area_sum_total].transform(zscore)
         return df
-
-    # TODO: Create global function for imputed values so that they are consistent
-    def get_imputed_df(self, incl_tech=False):
-        if incl_tech:
-            sum_list = [self.col_exp, self.col_bio_rep, self.col_weight_type, self.col_tech_rep,
-                        self.col_link_type]
-        else:
-            sum_list = [self.col_exp, self.col_bio_rep, self.col_weight_type, self.col_link_type]
-        df = pd.DataFrame(self.df_orig)
-        df = df.groupby(level=self.col_link_type, axis=1).apply(
-            lambda x: self.fillna_with_normal_dist(x, log2=False))
-        df.columns = df.columns.droplevel(0)
-        df.index.name = self.col_level
 
     def remove_invalid_ids(self, df):
         name = set(df[self.col_origin])
@@ -337,6 +339,7 @@ class BagContainer(object):
 
     def compute_lh_log2ratio(self, df):
         # xtract filters per uid, experiment and charge state and link type
+        # note that this will compute across all replicates
         def get_lh_ratio(x):
             log2 = np.nan
             log2series = x.groupby([self.col_weight_type])[self.col_area_sum_total].sum()
@@ -352,6 +355,76 @@ class BagContainer(object):
             return x
 
         df = df.groupby([self.col_uid, self.col_exp, self.col_charge, self.col_link_type]).apply(get_lh_ratio)
+        return df
+
+    # TODO: for xTract: instead of filling missing values with a shifted distribution it will assign the detection limit
+    # TODO: for the missing value (10E3) with a var of 500 then use the maximum intensity of the first isotope as ref
+    # TODO: don't impute links with violations ?
+    # replace missing observations by drawing random values from a normal distribution
+    # 1) pivot and unstack -> creates the missing entries
+    # 2) convert to log2 scale in order to have a normal distribution of our observations
+    # 3) determine mean and sd of our normal distribution
+    # 4) draw random numbers for the missing values using a downward shifted normal distribution
+    # ref: http://www.coxdocs.org/doku.php?id=perseus:user:activities:matrixprocessing:imputation:replacemissingfromgaussian
+    # ref: https://github.com/JurgenCox/perseus-plugins/blob/master/PerseusPluginLib/Impute/ReplaceMissingFromGaussian.cs
+    # default values from mq (shift=1.8, width=0.3) for a normal dist
+    def get_imputed_df(self, df):
+        # helper function which first pivots the dataframe and then unstacks it again
+        # this will automatically create missing values based on the minimal groups
+        # for example a values was not observed in one the technical replicates but not in another
+        # missing values will be returned as NaNs
+        def _stacker(df_tmp):
+            df_pivot = pd.pivot_table(df_tmp, values=self.col_area_sum_total, index=[self.col_level],
+                                      columns=self.minimal_groups, aggfunc=np.sum)
+            df_unstack = df_pivot.unstack().reset_index(name=self.col_area_sum_total).sort_values(
+                [self.col_level, self.col_exp])
+            return df_unstack
+        # setting the seed makes the number drawing reproducible
+        np.random.seed(5029)
+        # parameters for the distribution shift; using the MaxQuant defaults
+        shift = 1.8
+        width = 0.3
+        # grouping by link type and reaction state (i.e. quenched or hydrolyzed monolinks) prevents creating duplicate
+        # entries for theses groups (i.e. a uxID for monolink would otherwise create a crosslink entry)
+        # also monolinks can either have the reaction state hydrolyzed or quenched while all other link types
+        # are neither. Without the groupby this would create artificial quenched/hydrolyzed states for other link types
+        df = df.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(
+            _stacker).reset_index(drop=True)
+        #possible futture code for separate monolink treatment
+        # df_mono = df[df[self.col_link_type] == self.row_monolink_string]
+        # df_rest = df[~(df[self.col_link_type] == self.row_monolink_string)]
+        # df_mono = _stacker(df_mono).reset_index(drop=True)
+        # print(df_mono[df_mono[self.col_area_sum_total].isna()])
+        # grp_list = self.minimal_groups.copy()
+        # grp_list.remove(self.col_reaction_state)
+        # df_mono = df_mono.groupby([self.col_level] + grp_list).filter(lambda x: x[self.col_area_sum_total].isna().sum() < 2).reset_index(drop=True)
+        # print(df_mono[df_mono[self.col_area_sum_total].isna()])
+        # exit()
+        # df_rest = df_rest.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(_stacker).reset_index(drop=True)
+        # df = pd.concat([df_rest, df_mono]).reset_index(drop=True)
+        #df = df.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(_stacker).reset_index(drop=True)
+        # original distribution; replacing 0 with NaNs and then dropping all NaNs
+        values_org = df[self.col_area_sum_total].replace(0, np.nan).dropna().values
+        # original distribution in log2 scale
+        values_org_log2 = np.log2(values_org)
+        # column denoting whether a value was imputed
+        df[self.col_imputed] = False
+        a = df[self.col_area_sum_total].values
+        # mask of NaNs or 0s
+        m = np.isnan(a) | (a == 0)
+        # label imputed values
+        df.loc[m, self.col_imputed] = True
+        # mean and std of total matrix (in log2 scale)
+        mu, sigma = np.mean(values_org_log2), np.std(values_org_log2)
+        # draw random numbers
+        a[m] = np.random.normal(mu - shift * sigma, width * sigma, size=m.sum())
+        # since log2 values are not desired we go back to the original distribution
+        df.loc[m, self.col_area_sum_total] = 2 ** a[m]
+        # the following two lines shift the replicate mean to the experiment mean; works but needs more evaluation
+        # df_mean_diff =  df.mean().mean(level=self.col_exp) - df.mean()
+        # df = df + df_mean_diff
+        # a[:] = zscore(a, axis=0) # normalize along columns via z-score
+        print(f"Imputed {np.sum(m)} values of {len(df)} total values")
         return df
 
     def add_link_distances(self, df, df_dist):
@@ -392,79 +465,46 @@ class BagContainer(object):
         print(df.groupby(self.col_exp).mean())
         return df
 
-    def get_pivot(self, sum_list, mean_list, pivot_on):
-        df = self.get_group(sum_list, mean_list, pivot_on)
+    def get_pivot(self, sum_list, mean_list, pivot_on, log2=False):
+        df = self.get_group(sum_list, mean_list, pivot_on, log2=log2)
         df = pd.pivot_table(df, values=pivot_on, index=[self.col_level],
                             columns=mean_list, aggfunc=np.sum)
         return df
 
-    # TODO: for xTract: instead of filling missing values with a shifted distribution it will assign the detection limit
-    # TODO: for the missing value (10E3) with a var of 500 then use the maximum intensity of the first isotope as ref
-    # TODO: don't impute links with violations
-    def fillna_with_normal_dist(self, df, log2=True):
-        # ref: http://www.coxdocs.org/doku.php?id=perseus:user:activities:matrixprocessing:imputation:replacemissingfromgaussian
-        # ref: https://github.com/JurgenCox/perseus-plugins/blob/master/PerseusPluginLib/Impute/ReplaceMissingFromGaussian.cs
-        # default values from mq (shift=1.8, width=0.3) for a normal dist
-        # the underlying distribution is log-normal; log2 makes it normal
-        shift = 1.8
-        width = 0.3
-        # rows which only contain NaNs are dropped
-        df = df.dropna(how='all')
-        df = df.replace(0, np.nan)
-        df = np.log2(df)
-        a = df.values
-        b = a[~np.isnan(a)]
-        m = np.isnan(a)  # mask of NaNs
-        mu, sigma = np.mean(b), np.std(b)  # mean and std of total matrix
-        a[m] = np.random.normal(mu - shift * sigma, width * sigma, size=m.sum())
-        # if log2 values are not desired we go back to the original distribution
-        if not log2:
-            df = 2 ** df
-            a = 2 ** a
-            b = 2 ** b
-        # the following two lines shift the replicate mean to the experiment mean; works but needs more evaluation
-        # df_mean_diff =  df.mean().mean(level=self.col_exp) - df.mean()
-        # df = df + df_mean_diff
-        # a[:] = zscore(a, axis=0) # normalize along columns via z-score
-        return df#, b, a[m]
-
-    def get_log2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False):
+    def get_log2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False, ratio_between=None):
+        ref_string = '_ref'
+        area_sum_ref = self.col_area_sum_total + ref_string
         if self.col_link_type not in sum_list:
             sum_list.append(self.col_link_type)
         if self.col_link_type not in mean_list:
             mean_list.append(self.col_link_type)
-        df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
-        # print(df.columns)
-        # exit()
-        if self.impute_missing:
-            df = df.groupby(level=self.col_link_type, axis=1).apply(
-               lambda x: self.fillna_with_normal_dist(x, log2=False))
-            df.columns = df.columns.droplevel(0)
-            df.index.name = self.col_level
-            # df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
-        else:
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
-            df = df.dropna()
-        # df = df.groupby([self.col_link_type, self.col_level]).filter(
-        #     lambda x: x[self.col_area_sum_total].isna().sum() != len(x))
+        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total)
+        if ratio_between is None:
+            ratio_between = self.col_exp
         if not ref:
-            if df[self.col_exp].dtype.name == 'category':
-                ref = df[self.col_exp].cat.categories[0]
+            if df[ratio_between].dtype.name == 'category':
+                ref = df[ratio_between].cat.categories[0]
             else:
-                ref = sorted(df[self.col_exp].unique())[0]
+                ref = sorted(df[ratio_between].unique())[0]
+        # group list contains the columns to differentiate by
         grp_list = [self.col_level, self.col_link_type]
-        df_ref = df[df[self.col_exp] == ref]
-        df_ref = df_ref[[self.col_area_sum_total] + grp_list]
-        df_ref = df_ref.rename(index=str, columns={self.col_area_sum_total: self.col_area_sum_total + '_exp_ref'})
-        df = pd.merge(df, df_ref, on=grp_list)
-        if ratio_only:
-            df[self.col_ratio] = df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref']
+        # if we are not computing the log2ratio based on the experiments we should differentiate them
+        if ratio_between != self.col_exp:
+            grp_list.append(self.col_exp)
+        df_ref = df[df[ratio_between] == ref]
+        if self.impute_missing:
+            df_ref = df_ref[[self.col_area_sum_total, self.col_imputed] + grp_list]
         else:
-            df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[self.col_area_sum_total + '_exp_ref'])
+            df_ref = df_ref[[self.col_area_sum_total] + grp_list]
+
+        df = pd.merge(df, df_ref, on=grp_list, suffixes=('', ref_string))
+        if ratio_only:
+            df[self.col_ratio] = df[self.col_area_sum_total] / df[area_sum_ref]
+        else:
+            df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[area_sum_ref])
         df[self.col_log2ratio_ref] = ref
         if not keep_ref:
-            df = df.loc[df[self.col_exp] != ref]
+            df = df.loc[df[ratio_between] != ref]
         return df
 
     def get_distance_delta_df(self, sum_list, mean_list, ref=None):
@@ -536,11 +576,6 @@ class BagContainer(object):
                 else:
                     return np.nan
 
-            # y = x.groupby(self.col_exp).apply(lambda t: print("A\n", t[self.col_area_sum_total] ,"\nB\n", x[self.col_area_sum_total].loc[
-            #                                                                                      x[
-            #                                                                                          self.col_exp] == ref]))
-            # x_ref = x[x[self.col_exp == ref]]
-            # x_exp = x[x[self.col_exp != ref]]
             y = x.groupby(self.col_exp).apply(
                 lambda t: pd.Series({self.col_pval: compare_variances(t[self.col_area_sum_total],
                                                                       x[self.col_area_sum_total].loc[
@@ -548,36 +583,14 @@ class BagContainer(object):
             return y
 
         def get_fdr(x):
-            # print(x)
             qvals = multicomp.multipletests(np.array(x[self.col_pval]), method='fdr_bh')[1]
-            # qvals = pd.Series({self.col_fdr: qvals})
             x = x.assign(**{self.col_fdr: qvals})
             return x
 
-        # pivot creates missing entries;a peptide has to exist only in one replicate in one experiment and one link type
-        df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
-        if self.impute_missing:
-            # df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
-            df = df.groupby(level=self.col_link_type, axis=1).apply(
-                lambda x: self.fillna_with_normal_dist(x, log2=False))
-            df.columns = df.columns.droplevel(0)
-            df.index.name = self.col_level
-            # df = self.fillna_with_normal_dist(df, log2=False)
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
-        else:
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values([self.col_level, self.col_exp])
-            # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
-        # this removes fake peptides created by the pivot; i.e. all petides for one link are NANs
-        df = df.groupby([self.col_link_type, self.col_level]).filter(
-            lambda x: x[self.col_area_sum_total].isna().sum() != len(x))
-        # replace NAN intensities (i.e those created by the pivot) with zero
-        df = df.replace(0, np.nan)
-        # df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
+        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total)
         df = df.groupby([self.col_link_type, self.col_level]).apply(get_ttest).reset_index()
         df = df.dropna()
         df = df.groupby([self.col_exp]).apply(get_fdr).reset_index(drop=True)
-        # df[self.col_fdr] = multicomp.multipletests(np.array(df[self.col_pval]), method='fdr_bh')[1]
-        # df = df.sort_values(self.col_exp)
         df = df.loc[df[self.col_exp] != ref]
         print("qvals smaller than 0.05", len(df[df[self.col_fdr] <= 0.05]))
         print("pvals smaller than 0.01", len(df[df[self.col_pval] <= 0.01]))
@@ -738,3 +751,18 @@ class BagContainer(object):
         print(f"Link groups with 2 monolinks: {num_mono2} ({num_mono2 / num_total:.0%})")
         df_new = filter_link_groups(df_new)
         return df_new
+
+    def get_reaction_state(self, df):
+        def _get_reaction_state(x):
+            if "-155" in x:
+                return "quenched"
+            elif "-156" in x:
+                return "hydrolized"
+            else:
+                return 'crosslinked'
+        # only calculate if there are monolinks in the bag container
+        if self.row_monolink_string in df[self.col_link_type].unique():
+            df[self.col_reaction_state] = df[self.col_uid].transform(_get_reaction_state)
+            df[self.col_uid] = df[self.col_uid].str.replace(
+                f"-15(5|6).*", "")
+        return df
