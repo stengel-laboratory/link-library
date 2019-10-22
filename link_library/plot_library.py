@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import shutil
 import os
 
 
@@ -28,17 +29,48 @@ def save_fig(out_name, df=None, out_dir='plots'):
     if df is not None:
         df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
 
+def get_altair_driver():
+    chromedriver = 'chromdriver'
+    chrome = 'chrome'
+    chromium = 'chromium'
+    geckodriver = 'geckodriver'
+    ff = 'firefox'
+    if shutil.which(ff):
+        if shutil.which(geckodriver):
+            return ff
+        else:
+            print('Warning: Firefox is installed but geckodriver is not. Cannot save via Firefox')
+    if shutil.which(chrome) or shutil.which(chromium):
+        if shutil.which(chromedriver):
+            return chrome
+        else:
+            print('Warning: Chrome is installed but chromedriver is not. Cannot save via Chrome')
+            print('Exiting without plotting')
+            exit(1)
 
-def save_g(fg, out_name, df=None, out_dir='plots', **kwargs):
+
+def save_g(fg, out_name, df_list=None, out_dir='plots', **kwargs):
     out_dir = create_plots_dir(out_dir)
     if 'altair' in str(type(fg)):
-        fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2)
-        fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2)
+        driver = get_altair_driver()
+        fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2, webdriver=driver)
+        fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2, webdriver=driver)
     else:
         fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
         fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)
-    if df is not None:
-        df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
+    if df_list is not None:
+        # is it really a list?
+        if isinstance(df_list, list):
+            for n, df_list in enumerate(df_list):
+                if isinstance(df_list, pd.DataFrame):
+                    df_list.to_csv(f"{out_dir + '/csv'}/plot_{out_name}_{n}.csv")
+                else:
+                    print(f"ERROR: Unknown object passed for saving: {type(df_list)}")
+        # it's just a single dataframe then
+        elif isinstance(df_list, pd.DataFrame):
+            df_list.to_csv(f"{out_dir + '/csv'}/plot_{out_name}.csv")
+        else:
+            print(f"ERROR: Unknown object passed for saving: {type(df_list)}")
 
 
 def save_n_show_fig(out_name, df=None, out_dir = 'plots'):
