@@ -16,7 +16,7 @@ def create_plots_dir(out_dir = 'plots'):
     return out_dir
 
 
-def save_fig(out_name, df=None, out_dir='plots'):
+def save_fig(out_name, df_list=None, out_dir='plots'):
     out_dir = create_plots_dir(out_dir)
     # plt.tight_layout()
     figure = plt.gcf()  # get current figure
@@ -26,8 +26,7 @@ def save_fig(out_name, df=None, out_dir='plots'):
     plt.tight_layout()
     plt.savefig("{0}/plot_{1}.png".format(out_dir, out_name))
     plt.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name))
-    if df is not None:
-        df.to_csv("{0}/plot_{1}.csv".format(out_dir + '/csv', out_name))
+    write_csv(df_list, out_dir, out_name)
 
 def get_altair_driver():
     chromedriver = 'chromdriver'
@@ -58,6 +57,10 @@ def save_g(fg, out_name, df_list=None, out_dir='plots', **kwargs):
     else:
         fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
         fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)
+    write_csv(df_list, out_dir, out_name)
+
+
+def write_csv(df_list, out_dir, out_name):
     if df_list is not None:
         # is it really a list?
         if isinstance(df_list, list):
