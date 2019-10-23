@@ -145,13 +145,16 @@ class BagContainer(object):
         if self.distance_list:
             self.df_orig = self.add_link_distances(self.df_orig, df_dist)
         self.df_orig = self.get_reaction_state(self.df_orig)
-        self.minimal_groups = [self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_weight_type, self.col_link_type]
+        self.minimal_groups = [self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_weight_type,
+                               self.col_link_type, self.col_origin]
+        self.area_columns = [self.col_area_sum_total, self.col_area_sum_light, self.col_area_sum_heavy]
         if self.col_reaction_state in self.df_orig.columns:
             self.minimal_groups.append(self.col_reaction_state)
-        self.df_orig = self.df_orig.groupby([self.col_level] + self.minimal_groups)[self.col_area_sum_total].sum().reset_index()
-        # print(self.df_minimal)
+        self.df_orig = self.df_orig.groupby([self.col_level] + self.minimal_groups)[self.area_columns].sum().reset_index()
         if self.impute_missing:
             self.df_orig = self.get_imputed_df(self.df_orig)
+            # some plots need the light/heavy area columns to function
+            self.df_orig = self.compute_lh_log2ratio(self.df_orig, force_groups=[self.col_level, self.col_exp, self.col_link_type])
         self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
         if sortlist is not None:
@@ -311,11 +314,13 @@ class BagContainer(object):
 
     def get_group(self, sum_list, mean_list, group_on, log2=False, z_score=False):
         df = pd.DataFrame(self.df_orig)
-        group_on_list = [group_on]
+        # turn groupon into a list if it is not already
+        if not isinstance(group_on, list):
+            group_on = [group_on]
         if self.col_imputed in df.columns:
-            group_on_list.append(self.col_imputed)
-        df = df.groupby([self.col_level] + sum_list)[group_on_list].sum().reset_index()
-        df = df.groupby([self.col_level] + mean_list)[group_on_list].mean().reset_index()
+            group_on.append(self.col_imputed)
+        df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
+        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         if log2 or z_score:
             df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         if z_score:
@@ -337,7 +342,7 @@ class BagContainer(object):
         print(f"Shape of {name} after removing xTract violations: {df.shape}.")
         return df
 
-    def compute_lh_log2ratio(self, df):
+    def compute_lh_log2ratio(self, df, force_groups=None):
         # xtract filters per uid, experiment and charge state and link type
         # note that this will compute across all replicates
         def get_lh_ratio(x):
@@ -353,8 +358,10 @@ class BagContainer(object):
                 x[self.col_area_sum_light] = np.nan
                 x[self.col_area_sum_heavy] = np.nan
             return x
-
-        df = df.groupby([self.col_uid, self.col_exp, self.col_charge, self.col_link_type]).apply(get_lh_ratio)
+        groups = [self.col_uid, self.col_exp, self.col_charge, self.col_link_type]
+        if force_groups is not None:
+            groups = force_groups
+        df = df.groupby(groups).apply(get_lh_ratio)
         return df
 
     # TODO: for xTract: instead of filling missing values with a shifted distribution it will assign the detection limit
@@ -502,6 +509,7 @@ class BagContainer(object):
             df[self.col_ratio] = df[self.col_area_sum_total] / df[area_sum_ref]
         else:
             df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[area_sum_ref])
+        df[self.col_log2avg] = np.log2(df[self.col_area_sum_total] * df[area_sum_ref]) / 2
         df[self.col_log2ratio_ref] = ref
         if not keep_ref:
             df = df.loc[df[ratio_between] != ref]
@@ -543,16 +551,7 @@ class BagContainer(object):
             df = df.assign(**kwargs)
             return df
 
-        df = self.get_pivot(sum_list, mean_list, pivot_on=self.col_area_sum_total)
-        if self.impute_missing:
-            df, dist_orig, dist_imp = self.fillna_with_normal_dist(df, log2=False)
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values(
-                [self.col_level, self.col_exp, self.col_bio_rep])
-        else:
-            df = df.unstack().reset_index(name=self.col_area_sum_total).sort_values(
-                [self.col_level, self.col_exp, self.col_bio_rep])
-            # df = df.groupby(self.col_level).filter(lambda x: x[self.col_area_sum_total].isna().sum() == 0)
-        df = df.groupby([self.col_exp, self.col_level]).apply(get_loggi).reset_index(drop=True)
+        df = self.df_orig.groupby([self.col_exp, self.col_level]).apply(get_loggi).reset_index(drop=True)
         df = df.drop(columns=[self.col_area_sum_total])  # makes no sense to return this column for a single experiment
         df = df.loc[df[self.col_bio_rep] != ref]
         return df
