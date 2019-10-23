@@ -148,8 +148,8 @@ class PlotMaster(object):
                 return 3
             return 4
 
-        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep]
-        mean_list = [self.bag_cont.col_exp]
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]
+        mean_list = [self.bag_cont.col_exp, self.bag_cont.col_link_type]
         exp_ref = ll.input_log2_ref(self.bag_cont.exp_list)
         df_pval = self.bag_cont.get_two_sided_ttest(sum_list, sum_list, ref=exp_ref)
         df_stats = self.bag_cont.get_stats(sum_list, mean_list)
@@ -539,12 +539,12 @@ class PlotMaster(object):
         df[self.bag_cont.col_index] = df[self.bag_cont.col_index].astype(int)
         df = df.loc[df[self.bag_cont.col_index] < len(df.index) / 4]
         fg = sns.catplot(kind="bar", x=self.bag_cont.col_level, y=self.bag_cont.col_area_sum_total,
-                         hue=self.bag_cont.col_area_bio_repl, data=df, row=self.bag_cont.col_exp_original, ci=None)
+                         hue=self.bag_cont.col_bio_rep, data=df, row=self.bag_cont.col_exp, ci=None)
         fg.set(yscale='log')
         for row in fg.axes:
             for ax in row:
                 ax.set_xticklabels(ax.get_xticklabels(), rotation=90, ha='right', size=9)
-            self.plot_fig(name='rep_bar', extra="{0}".format(row), df_list=df)
+        self.plot_fig(name='rep_bar', df_list=df)
 
     def get_lowdiff(self):
         import statsmodels.nonparametric.smoothers_lowess as lw
