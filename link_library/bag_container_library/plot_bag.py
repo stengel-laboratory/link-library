@@ -93,14 +93,13 @@ class PlotMaster(object):
         mean_list = [self.bag_cont.col_exp, self.bag_cont.col_link_type]
         df = self.bag_cont.get_stats(sum_list, mean_list, log2=True)
         df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
-        # print(df)
-        fg = sns.relplot(data=df, y='std', x='mean', hue=self.bag_cont.col_link_type, col=self.bag_cont.col_exp)
+        fg = sns.relplot(data=df, y='std_rel', x='mean', hue=self.bag_cont.col_link_type, col=self.bag_cont.col_exp)
         for row in fg.axes:
             for ax in row:
                 # ax.set_yscale('log', basey=2)
                 # ax.set_xscale('log', basex=10)
                 ax.set_ylim(ymin=0)
-                ax.hlines(y=0.5, xmin=df['mean'].min(), xmax=df['mean'].max(), label="std=0.5", colors=['grey'])
+                ax.hlines(y=0.1, xmin=df['mean'].min(), xmax=df['mean'].max(), label="std_rel=0.1", colors=['grey'])
         self.plot_fig(name="std", g=fg, df_list=df)
         # df = df[(df[self.bag_cont.col_log2ratio] < 1)&(df[self.bag_cont.col_log2ratio] > -1)]
 
