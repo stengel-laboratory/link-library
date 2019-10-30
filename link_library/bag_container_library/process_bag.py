@@ -320,11 +320,11 @@ class BagContainer(object):
         if self.col_imputed in df.columns:
             group_on.append(self.col_imputed)
         df = df.groupby([self.col_level] + sum_list)[group_on].sum().reset_index()
-        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         if log2 or z_score:
             df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         if z_score:
             df[self.col_area_z_score] = df.groupby([self.col_level])[self.col_area_sum_total].transform(zscore)
+        df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         return df
 
     def remove_invalid_ids(self, df):
@@ -450,20 +450,11 @@ class BagContainer(object):
         return df
 
     def get_stats(self, sum_list, mean_list, log2=False):
-        df = pd.DataFrame(self.df_orig)
-        df = df.groupby([self.col_level] + sum_list)[self.col_area_sum_total].sum().reset_index()
-        if log2:
-            df[self.col_area_sum_total] = np.log2(df[self.col_area_sum_total])
-        # print(df)
-        # df = df.replace(0, np.nan)
-
-        # print(pd.pivot_table(df, values=self.col_area_sum_total, index=[self.col_level], columns=sum_list,
-        #                      aggfunc=np.sum))
-
+        df = self.get_group(sum_list, sum_list, self.col_area_sum_total, log2=log2)
         df = df.groupby([self.col_level] + mean_list)[self.col_area_sum_total].agg([pd.Series.mean, pd.Series.std])
         df['snr'] = df['mean'] / df['std']
+        df['std_rel'] = df['std'] / df['mean']
         # 'iqr': lambda x: x.quantile(0.75)-x.quantile(0.25),  'median': pd.Series.median, 'q25': lambda x: x.quantile(0.25), 'q75': lambda y: y.quantile(0.75)})
-
         df = df.dropna()
         len_index = len(df.index.names)
         levels = [i for i in range(len_index)]
