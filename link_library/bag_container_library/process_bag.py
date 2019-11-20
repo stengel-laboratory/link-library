@@ -15,8 +15,10 @@ from scipy.stats import zscore
 class BagContainer(object):
 
     def __init__(self, level, df_list, filter=None, sel_exp=False, impute_missing=False, norm_exps='yes',
-                 norm_reps=False, df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh', 'xt')):
+                 norm_reps=False, df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh', 'xt'),
+                 log2diff=False):
         self.impute_missing = impute_missing
+        self.log2diff = log2diff
         self.col_uid = "uid"
         self.col_uxid = "uxid"
         self.col_exp = "exp_name"
@@ -395,9 +397,9 @@ class BagContainer(object):
         # entries for theses groups (i.e. a uxID for monolink would otherwise create a crosslink entry)
         # also monolinks can either have the reaction state hydrolyzed or quenched while all other link types
         # are neither. Without the groupby this would create artificial quenched/hydrolyzed states for other link types
-        df = df.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(
+        df = df.groupby([self.col_link_type, self.col_reaction_state, self.col_origin], as_index=False).apply(
             _stacker).reset_index(drop=True)
-        #possible futture code for separate monolink treatment
+        #possible future code for separate monolink treatment
         # df_mono = df[df[self.col_link_type] == self.row_monolink_string]
         # df_rest = df[~(df[self.col_link_type] == self.row_monolink_string)]
         # df_mono = _stacker(df_mono).reset_index(drop=True)
@@ -476,7 +478,7 @@ class BagContainer(object):
             sum_list.append(self.col_link_type)
         if self.col_link_type not in mean_list:
             mean_list.append(self.col_link_type)
-        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total)
+        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total, log2=(self.log2diff & (not ratio_only)))
         if ratio_between is None:
             ratio_between = self.col_exp
         if not ref:
@@ -499,8 +501,14 @@ class BagContainer(object):
         if ratio_only:
             df[self.col_ratio] = df[self.col_area_sum_total] / df[area_sum_ref]
         else:
-            df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[area_sum_ref])
-        df[self.col_log2avg] = np.log2(df[self.col_area_sum_total] * df[area_sum_ref]) / 2
+            if self.log2diff:
+                df[self.col_log2ratio] = df[self.col_area_sum_total] - df[area_sum_ref]
+            else:
+                df[self.col_log2ratio] = np.log2(df[self.col_area_sum_total] / df[area_sum_ref])
+        if self.log2diff:
+            df[self.col_log2avg] = (df[self.col_area_sum_total] + df[area_sum_ref]) / 2
+        else:
+            df[self.col_log2avg] = np.log2(df[self.col_area_sum_total] * df[area_sum_ref]) / 2
         df[self.col_log2ratio_ref] = ref
         if not keep_ref:
             df = df.loc[df[ratio_between] != ref]
@@ -577,7 +585,7 @@ class BagContainer(object):
             x = x.assign(**{self.col_fdr: qvals})
             return x
 
-        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total)
+        df = self.get_group(sum_list, mean_list, group_on=self.col_area_sum_total, log2=self.log2diff)
         df = df.groupby([self.col_link_type, self.col_level]).apply(get_ttest).reset_index()
         df = df.dropna()
         df = df.groupby([self.col_exp]).apply(get_fdr).reset_index(drop=True)
