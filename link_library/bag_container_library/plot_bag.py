@@ -31,8 +31,9 @@ class PlotMaster(object):
             ax.tick_params(axis='y', which='both', right=False, labelright=False)
 
         # how far up we want to sum up values; done first (understand it as an exclusion list)
-        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep,
-                    self.bag_cont.col_tech_rep]  # self.bag_cont.col_tech_rep, self.bag_cont.col_charge self.bag_cont.col_weight_type
+        # uses same values as for link plot and xtract_out_writer
+        sum_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep, self.bag_cont.col_weight_type,
+                    self.bag_cont.col_tech_rep, self.bag_cont.col_link_type]  # self.bag_cont.col_tech_rep
         # how far do we take the mean of values; done second
         mean_list = [self.bag_cont.col_exp, self.bag_cont.col_bio_rep]
         # the following two lines will take the mean of the tech replicates; should always be used if don't want separate tech reps
