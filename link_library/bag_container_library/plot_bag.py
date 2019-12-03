@@ -18,7 +18,7 @@ class PlotMaster(object):
         self.bag_cont = bag_cont
 
     # TODO: separation by link type only works properly when the types have different uxids
-    # TODO: this means loop ind xlinks with the same u(x)id will be merged into one link
+    # TODO: this means loop and xlinks with the same u(x)id will be merged into one link
     def plot_clustermap(self):
         def cluster_formatter(cg, df_links):
             # create invisible plot to create a legend for the row labeling; adapted from https://stackoverflow.com/a/27992943
@@ -188,11 +188,14 @@ class PlotMaster(object):
         if self.bag_cont.col_domain:
             df = self.bag_cont.get_prot_name_and_link_pos(df)
             df = df.sort_values([self.bag_cont.col_domain, self.bag_cont.col_exp, self.bag_cont.col_level])
+            # not optimal; right now either differentiates domain or link type; cannot do both
+            hue_col = self.bag_cont.col_domain
         else:
             df = df.sort_values([self.bag_cont.col_exp, self.bag_cont.col_level])
+            hue_col = self.bag_cont.col_link_type
         fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
                          col=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False,
-                         hue=self.bag_cont.col_domain, sharex=False, legend=False)
+                         hue=hue_col, sharex=False, legend=False)
         # force scientific notation on y-axis for the original distribution (which is in the range of 1e7 to 1e10)
         if not convert_to_log2:
             for ax in fg.axes.flat:
