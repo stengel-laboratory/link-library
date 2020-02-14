@@ -326,6 +326,7 @@ class BagContainer(object):
             df[self.col_area_sum_total] = df[self.col_area_sum_total].map(np.log2)
         if z_score:
             df[self.col_area_z_score] = df.groupby([self.col_level])[self.col_area_sum_total].transform(zscore)
+            group_on.append(self.col_area_z_score)
         df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         return df
 
