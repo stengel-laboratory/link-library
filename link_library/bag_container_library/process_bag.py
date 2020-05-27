@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import copy
-from statsmodels.sandbox.stats import multicomp
+from statsmodels.stats import multitest
 from statsmodels.stats import weightstats
 from scipy.stats import levene
 from scipy.stats import zscore
@@ -213,6 +213,9 @@ class BagContainer(object):
 
         return df
 
+    # normalize replicates similar to experiments
+    # calculate the ratio between each (technical) replicate and the given experiment
+    # divide ms1 peak area by this factor to normalize
     def normalize_replicates(self, df):
         rep_exp_ratio_string = self.col_area_sum_total + '_rep_exp_ratio'
         mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
@@ -381,7 +384,7 @@ class BagContainer(object):
     def get_imputed_df(self, df):
         # helper function which first pivots the dataframe and then unstacks it again
         # this will automatically create missing values based on the minimal groups
-        # for example a values was not observed in one the technical replicates but not in another
+        # for example a value that was not observed in one the technical replicate but not in another
         # missing values will be returned as NaNs
         def _stacker(df_tmp):
             df_pivot = pd.pivot_table(df_tmp, values=self.col_area_sum_total, index=[self.col_level],
@@ -398,9 +401,14 @@ class BagContainer(object):
         # entries for theses groups (i.e. a uxID for monolink would otherwise create a crosslink entry)
         # also monolinks can either have the reaction state hydrolyzed or quenched while all other link types
         # are neither. Without the groupby this would create artificial quenched/hydrolyzed states for other link types
-        df = df.groupby([self.col_link_type, self.col_reaction_state, self.col_origin], as_index=False).apply(
+        # only append reaction state when monolinks are in the bag container
+        if self.col_reaction_state in self.minimal_groups:
+            impute_group_list = [self.col_link_type, self.col_reaction_state, self.col_origin]
+        else:
+            impute_group_list = [self.col_link_type, self.col_origin]
+        df = df.groupby(impute_group_list, as_index=False).apply(
             _stacker).reset_index(drop=True)
-        #possible future code for separate monolink treatment
+        # possible future code for separate monolink treatment
         # df_mono = df[df[self.col_link_type] == self.row_monolink_string]
         # df_rest = df[~(df[self.col_link_type] == self.row_monolink_string)]
         # df_mono = _stacker(df_mono).reset_index(drop=True)
@@ -560,7 +568,7 @@ class BagContainer(object):
         # function takes a dataframe grouped by ids and calculates pvalues against a reference
         def get_ttest(x):
             # takes two group values, determines whether their variances are equal (via levene test)
-            # and computes and independent t-test with either pooled (Student) or non-pooled (Welsh) variances
+            # and computes an independent t-test with either pooled (Student) or non-pooled (Welsh) variances
             def compare_variances(vals_exp, vals_ref):
                 if not np.isnan(np.var(vals_exp)) and not np.isnan(np.var(vals_ref)):
                     eq_var_pval = levene(vals_exp, vals_ref)[1]
@@ -582,7 +590,7 @@ class BagContainer(object):
             return y
 
         def get_fdr(x):
-            qvals = multicomp.multipletests(np.array(x[self.col_pval]), method='fdr_bh')[1]
+            qvals = multitest.multipletests(np.array(x[self.col_pval]), method='fdr_bh')[1]
             x = x.assign(**{self.col_fdr: qvals})
             return x
 
