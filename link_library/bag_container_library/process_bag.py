@@ -16,7 +16,9 @@ class BagContainer(object):
 
     def __init__(self, level, df_list, filter=None, sel_exp=False, impute_missing=False, norm_exps='yes',
                  norm_reps=False, df_domains=None, df_dist=None, whitelist=None, sortlist=None, vio_list=('lh', 'xt'),
-                 log2diff=False):
+                 log2diff=False, df_map=None):
+        if df_map is not None and sortlist is not None:
+            print("ERROR: Map parameter and Sortlist parameter are mutually exclusive")
         self.impute_missing = impute_missing
         self.log2diff = log2diff
         self.col_uid = "uid"
@@ -53,6 +55,9 @@ class BagContainer(object):
         self.col_positions = 'link_positions'
         self.col_reaction_state = 'reaction_state'
         self.col_imputed = 'imputed'
+        self.col_name = 'column_name'
+        self.col_map_to = 'map_to'
+        self.col_map_from = 'map_from'
         if df_domains is not None:
             self.col_domain = 'domain'
         else:
@@ -138,7 +143,7 @@ class BagContainer(object):
         if 'lh' not in vio_list and 'xt' not in vio_list:
             'WARNING: No violations removal was selected. Results will be unfiltered'
         if whitelist is not None:
-            self.df_orig = self.filter_linky_by_whitelist(self.df_orig, whitelist)
+            self.df_orig = self.filter_links_by_whitelist(self.df_orig, whitelist)
         self.df_orig = self.compute_rep_and_exp_mean(self.df_orig)
         if norm_reps:
             self.df_orig = self.normalize_replicates(self.df_orig)
@@ -152,11 +157,13 @@ class BagContainer(object):
         self.area_columns = [self.col_area_sum_total, self.col_area_sum_light, self.col_area_sum_heavy]
         if self.col_reaction_state in self.df_orig.columns:
             self.minimal_groups.append(self.col_reaction_state)
-        self.df_orig = self.df_orig.groupby([self.col_level] + self.minimal_groups)[self.area_columns].sum().reset_index()
+        self.df_orig = self.df_orig.groupby([self.col_level] + self.minimal_groups)[
+            self.area_columns].sum().reset_index()
         if self.impute_missing:
             self.df_orig = self.get_imputed_df(self.df_orig)
             # some plots need the light/heavy area columns to function
-            self.df_orig = self.compute_lh_log2ratio(self.df_orig, force_groups=[self.col_level, self.col_exp, self.col_link_type])
+            self.df_orig = self.compute_lh_log2ratio(self.df_orig,
+                                                     force_groups=[self.col_level, self.col_exp, self.col_link_type])
         self.bio_rep_list = self.df_orig[self.col_bio_rep].unique()
         self.exp_list = sorted(self.df_orig[self.col_exp].unique())
         if sortlist is not None:
@@ -170,14 +177,31 @@ class BagContainer(object):
         self.bio_rep_num = len(self.bio_rep_list)
         self.tech_rep_list = self.df_orig[self.col_tech_rep].unique()
         self.tech_rep_num = len(self.tech_rep_list)
-
+        if df_map is not None:
+            self.map_vals(df_map)
         self.print_info(self.df_orig)
         # self.df_orig[self.col_area_sum_total] = np.log2(self.df_orig[self.col_area_sum_total])
         # self.df_orig = self.divide_int_by_reps(self.df_orig)
 
     def print_info(self, df):
         print("The following experiments and number of replicates were found in the bag container")
-        print(df.groupby(self.col_exp)[self.col_bio_rep, self.col_tech_rep].nunique(), '\n')
+        print(df.groupby(self.col_exp)[[self.col_bio_rep, self.col_tech_rep]].nunique(), '\n')
+
+    # map values inside columns as specified in the map dataframe
+    def map_vals(self, df_map):
+        def _get_map_dict(x):
+            return dict(zip(x[self.col_map_from], x[self.col_map_to]))
+        required_cols = [self.col_name, self.col_map_to, self.col_map_from]
+        if not all(item in df_map.columns for item in required_cols):
+            print(
+                f"Warning: The map file misses a required column. The following columns are required: {required_cols}\nAborting the map function")
+        for col in df_map[self.col_name].unique():
+            if col not in self.df_orig.columns:
+                print(
+                    f"Warning: The map file contains a column not found in the bag container: {col}\nAborting the map function")
+                return
+        for col in df_map[self.col_name].unique():
+            self.df_orig[col] = self.df_orig[col].map(_get_map_dict(df_map[df_map[self.col_name] == col])).fillna(self.df_orig[col])
 
     # normalizes inter-experiment abundance in the xTract way: use one experiment as the reference
     # calculate the mean intensities and their ratio compared to the reference
@@ -205,6 +229,7 @@ class BagContainer(object):
         print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
         return df
 
+
     def compute_rep_and_exp_mean(self, df):
         mean_list = [self.col_exp, self.col_bio_rep, self.col_tech_rep]
 
@@ -212,6 +237,7 @@ class BagContainer(object):
         df[self.col_area_exp] = df.groupby([self.col_exp])[self.col_area_rep].transform(np.mean)
 
         return df
+
 
     # normalize replicates similar to experiments
     # calculate the ratio between each (technical) replicate and the given experiment
@@ -234,6 +260,7 @@ class BagContainer(object):
         print("Mean replicate areas after normalization: ")
         print(df.groupby(mean_list)[self.col_area_sum_total].mean(), '\n')
         return df
+
 
     def rename_columns(self, df):
         # the ms1 area string depends on the kind of the experiment normalization
@@ -270,10 +297,11 @@ class BagContainer(object):
                                            self.charge_string: self.col_charge, })
         return df
 
+
     # create new columns and modify others to facilitate working with the df
     def prepare_df(self, df):
         # create two separate columns for link type and weight (i.e. heavy or light)
-        df[self.col_link_type], df[self.col_weight_type] = df[self.type_string].str.split(':').str
+        df[[self.col_link_type, self.col_weight_type]] = df[self.type_string].str.split(':', expand=True)
         df[self.col_exp_file] = df.name[:df.name.rfind('_')]
         df[self.col_origin] = df.name
         # df_abs_pos = df[self.uxid_string].str.split(':', expand=True)
@@ -288,18 +316,21 @@ class BagContainer(object):
         df[self.uid_string] = df[self.uid_string].str.replace(f":({'::*'}).*", "")
         return df
 
+
     def filter_link_type(self, df):
         # optionally filter for link type
         if self.filter:
             df = df.loc[df[self.col_link_type] == self.filter]
         return df
 
+
     def filter_exp(self, df, sel_list):
         # optionally filter experiments
         df = df.loc[df[self.col_exp].isin(sel_list)]
         return df
 
-    def filter_linky_by_whitelist(self, df, df_white_list):
+
+    def filter_links_by_whitelist(self, df, df_white_list):
         # uxid and and exp are mandatory; further columns are possible but optional
         for col in df_white_list.columns:
             if col not in df.columns:
@@ -317,6 +348,7 @@ class BagContainer(object):
         print(f"Shape of {name} after filtering via whitelist: {df.shape}.")
         return df
 
+
     def get_group(self, sum_list, mean_list, group_on, log2=False, z_score=False):
         df = pd.DataFrame(self.df_orig)
         # turn groupon into a list if it is not already
@@ -333,12 +365,14 @@ class BagContainer(object):
         df = df.groupby([self.col_level] + mean_list)[group_on].mean().reset_index()
         return df
 
+
     def remove_invalid_ids(self, df):
         name = set(df[self.col_origin])
         print(f"Shape of {name} before filtering invalid ids: {df.shape}.")
         df = df.loc[df[self.valid_string] == 1]
         print(f"Shape of {name} after filtering invalid ids: {df.shape}.")
         return df
+
 
     def remove_xtract_violations(self, df):
         name = set(df[self.col_origin])
@@ -347,6 +381,7 @@ class BagContainer(object):
         df = df.loc[df[self.vio_string] == 0]
         print(f"Shape of {name} after removing xTract violations: {df.shape}.")
         return df
+
 
     def compute_lh_log2ratio(self, df, force_groups=None):
         # xtract filters per uid, experiment and charge state and link type
@@ -364,11 +399,13 @@ class BagContainer(object):
                 x[self.col_area_sum_light] = np.nan
                 x[self.col_area_sum_heavy] = np.nan
             return x
+
         groups = [self.col_uid, self.col_exp, self.col_charge, self.col_link_type]
         if force_groups is not None:
             groups = force_groups
         df = df.groupby(groups).apply(get_lh_ratio)
         return df
+
 
     # TODO: for xTract: instead of filling missing values with a shifted distribution it will assign the detection limit
     # TODO: for the missing value (10E3) with a var of 500 then use the maximum intensity of the first isotope as ref
@@ -392,6 +429,7 @@ class BagContainer(object):
             df_unstack = df_pivot.unstack().reset_index(name=self.col_area_sum_total).sort_values(
                 [self.col_level, self.col_exp])
             return df_unstack
+
         # setting the seed makes the number drawing reproducible
         np.random.seed(5029)
         # parameters for the distribution shift; using the MaxQuant defaults
@@ -420,7 +458,7 @@ class BagContainer(object):
         # exit()
         # df_rest = df_rest.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(_stacker).reset_index(drop=True)
         # df = pd.concat([df_rest, df_mono]).reset_index(drop=True)
-        #df = df.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(_stacker).reset_index(drop=True)
+        # df = df.groupby([self.col_link_type, self.col_reaction_state], as_index=False).apply(_stacker).reset_index(drop=True)
         # original distribution; replacing 0 with NaNs and then dropping all NaNs
         values_org = df[self.col_area_sum_total].replace(0, np.nan).dropna().values
         # original distribution in log2 scale
@@ -445,12 +483,14 @@ class BagContainer(object):
         print(f"Imputed {np.sum(m)} values of {len(df)} total values")
         return df
 
+
     def add_link_distances(self, df, df_dist):
         df_dist = df_dist.drop_duplicates()
         print(df.shape)
         df = pd.merge(df, df_dist, how='left', on=[self.col_exp, self.col_uxid])
         print(df.shape)
         return df
+
 
     def remove_lh_violations(self, df):
         # xtract filters per uid, experiment and charge state
@@ -459,6 +499,7 @@ class BagContainer(object):
         df = df[(df[self.col_lh_log2ratio] > -1) & (df[self.col_lh_log2ratio] < 1)]
         print(f"Shape of {name} after light/heavy log2 filter: {df.shape}")
         return df
+
 
     def get_stats(self, sum_list, mean_list, log2=False):
         df = self.get_group(sum_list, sum_list, self.col_area_sum_total, log2=log2)
@@ -474,11 +515,13 @@ class BagContainer(object):
         print(df.groupby(self.col_exp).mean())
         return df
 
+
     def get_pivot(self, sum_list, mean_list, pivot_on, log2=False):
         df = self.get_group(sum_list, mean_list, pivot_on, log2=log2)
         df = pd.pivot_table(df, values=pivot_on, index=[self.col_level],
                             columns=mean_list, aggfunc=np.sum)
         return df
+
 
     def get_log2ratio(self, sum_list, mean_list, ref=None, ratio_only=False, keep_ref=False, ratio_between=None):
         ref_string = '_ref'
@@ -523,6 +566,7 @@ class BagContainer(object):
             df = df.loc[df[ratio_between] != ref]
         return df
 
+
     def get_distance_delta_df(self, sum_list, mean_list, ref=None):
         if self.col_link_type not in sum_list:
             sum_list.append(self.col_link_type)
@@ -546,6 +590,7 @@ class BagContainer(object):
         df = df.loc[df[self.col_exp] != ref]
         return df
 
+
     def getlog2ratio_r(self, sum_list, mean_list, ref):
         def get_loggi(x):
             log2col = pd.Series(np.log2(
@@ -563,6 +608,7 @@ class BagContainer(object):
         df = df.drop(columns=[self.col_area_sum_total])  # makes no sense to return this column for a single experiment
         df = df.loc[df[self.col_bio_rep] != ref]
         return df
+
 
     def get_two_sided_ttest(self, sum_list, mean_list, ref):
         # function takes a dataframe grouped by ids and calculates pvalues against a reference
@@ -602,6 +648,7 @@ class BagContainer(object):
         print("qvals smaller than 0.05", len(df[df[self.col_fdr] <= 0.05]))
         print("pvals smaller than 0.01", len(df[df[self.col_pval] <= 0.01]))
         return df
+
 
     def get_prot_name_and_link_pos(self, df):
         # temp df; splitting uxid into positions and protein names
@@ -664,6 +711,7 @@ class BagContainer(object):
             df = pd.merge(df, df_dom, on=self.col_uxid)
         return df
 
+
     # removes uids with violations; only checks for light/heavy log2ratio violations
     # TODO: implement violation which requires all charge states of a peptide to be present in both experiments
     # TODO: split up into violation assign (use separate columns) and filtering
@@ -677,6 +725,7 @@ class BagContainer(object):
         print(f"Shape of {name} after filtering: {df.shape}.")
         return df
 
+
     def divide_int_by_reps(self, df):
         # TODO: check if this is really necessary
         # ms1 intensities have to be divided by tech_replicates*bio_replicates when coming from a details container
@@ -688,6 +737,7 @@ class BagContainer(object):
             df[self.col_area_sum_total] = \
                 df[self.col_area_sum_total].apply(lambda x: x / self.bio_rep_num * self.tech_rep_num)
         return df
+
 
     def get_matching_monos(self):
         import link_library as ll
@@ -759,6 +809,7 @@ class BagContainer(object):
         df_new = filter_link_groups(df_new)
         return df_new
 
+
     def get_reaction_state(self, df):
         def _get_reaction_state(x):
             if "-155" in x:
@@ -767,6 +818,7 @@ class BagContainer(object):
                 return "hydrolized"
             else:
                 return 'crosslinked'
+
         # only calculate if there are monolinks in the bag container
         if self.row_monolink_string in df[self.col_link_type].unique():
             df[self.col_reaction_state] = df[self.col_uid].transform(_get_reaction_state)

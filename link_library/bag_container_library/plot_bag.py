@@ -5,7 +5,6 @@ import link_library.plot_library as plib
 import link_library as ll
 import matplotlib.pyplot as plt
 import matplotlib.ticker as plticker
-from scipy.stats import norm
 from functools import reduce
 import altair as alt
 import scipy.stats as stats
@@ -196,6 +195,10 @@ class PlotMaster(object):
         fg = sns.catplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
                          col=self.bag_cont.col_level, kind='point', col_wrap=5, ci='sd', sharey=False,
                          hue=hue_col, sharex=False, legend=False)
+        # maybe add a continuous option with relplot at some point
+        # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
+        #                  col=self.bag_cont.col_level, kind='line', col_wrap=5, ci='sd',
+        #                  hue=hue_col, legend=False, facet_kws={'sharex': False, 'sharey': False})
         # force scientific notation on y-axis for the original distribution (which is in the range of 1e7 to 1e10)
         if not convert_to_log2:
             for ax in fg.axes.flat:
