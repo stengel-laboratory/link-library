@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
 import os
-
+from altair_saver import save
 
 """
 2018-10-19 - Kai Kammer
@@ -29,31 +29,32 @@ def save_fig(out_name, df_list=None, out_dir='plots'):
     write_csv(df_list, out_dir, out_name)
 
 def get_altair_driver():
-    chromedriver = 'chromdriver'
-    chrome = 'chrome'
-    chromium = 'chromium'
+    chromedriver = 'chromedriver'
+    chrome_names = ['chrome', 'chromium', 'chromium-browser', 'chromium-browser-privacy']
     geckodriver = 'geckodriver'
     ff = 'firefox'
+    for chrome in chrome_names:
+        if shutil.which(chrome):
+            if shutil.which(chromedriver):
+                return 'chrome'
+            else:
+                print('Warning: Chrome is installed but chromedriver is not. Cannot save via Chrome')
     if shutil.which(ff):
         if shutil.which(geckodriver):
             return ff
         else:
             print('Warning: Firefox is installed but geckodriver is not. Cannot save via Firefox')
-    if shutil.which(chrome) or shutil.which(chromium):
-        if shutil.which(chromedriver):
-            return chrome
-        else:
-            print('Warning: Chrome is installed but chromedriver is not. Cannot save via Chrome')
             print('Exiting without plotting')
             exit(1)
-
 
 def save_g(fg, out_name, df_list=None, out_dir='plots', **kwargs):
     out_dir = create_plots_dir(out_dir)
     if 'altair' in str(type(fg)):
         driver = get_altair_driver()
-        fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2, webdriver=driver)
-        fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2, webdriver=driver)
+        save(fg, "{0}/plot_{1}.png".format(out_dir, out_name), method='selenium', scale_factor=2, webdriver=driver)
+        save(fg, "{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), method='selenium', scale_factor=2, webdriver=driver)
+        # fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2, webdriver=driver)
+        # fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2, webdriver=driver)
     else:
         fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
         fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)

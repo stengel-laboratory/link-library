@@ -203,9 +203,6 @@ class PlotMaster(object):
         if not convert_to_log2:
             for ax in fg.axes.flat:
                 ax.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
-        # fg = sns.relplot(data=df, x=self.bag_cont.col_exp, y=self.bag_cont.col_area_sum_total,
-        #                  col=self.bag_cont.col_level, kind='line', col_wrap=5, ci='sd',
-        #                  hue=self.bag_cont.col_domain, facet_kws={'sharey':False, 'sharex':False})
         df[cnt_column] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp, self.bag_cont.col_link_type])[
             self.bag_cont.col_level].transform('count')
         df[mean_column] = df.groupby([self.bag_cont.col_level, self.bag_cont.col_exp, self.bag_cont.col_link_type])[
@@ -632,7 +629,7 @@ class PlotMaster(object):
             df_merge = self._get_fit_merge_df(df, col_dist, self.bag_cont.col_area_sum_total)
 
             alt_chart = self._get_alt_lin_fit_chart(df_merge, col_dist, self.bag_cont.col_area_sum_total).facet(
-                column=self.bag_cont.col_exp
+                column=alt.Column(self.bag_cont.col_exp, title=None)
             )  # .resolve_scale(x='independent', y='independent')
             self.plot_fig("quant_vs_{0}".format(col_dist), df_list=df, g=alt_chart)
 
@@ -806,7 +803,7 @@ class PlotMaster(object):
 
     def _get_alt_lin_fit_chart(self, df, x_axis, y_axis):
         alt_point = alt.Chart(df).mark_circle(color='black').encode(
-            x=alt.X(x_axis, scale=alt.Scale(zero=False), axis=alt.Axis(title=x_axis)),
+            x=alt.X(x_axis, title=f"{x_axis}/Angstrom", scale=alt.Scale(zero=False)),#, axis=alt.Axis(title=x_axis)),
             y=alt.Y(y_axis, scale=alt.Scale(zero=False),
                     axis=alt.Axis(title=y_axis)),
         )

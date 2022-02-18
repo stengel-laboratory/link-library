@@ -149,14 +149,16 @@ class BagContainer(object):
             self.df_orig = self.normalize_replicates(self.df_orig)
         if norm_exps == 'yes':
             self.df_orig = self.normalize_experiments(self.df_orig)
-        if self.distance_list:
-            self.df_orig = self.add_link_distances(self.df_orig, df_dist)
         self.df_orig = self.get_reaction_state(self.df_orig)
         self.minimal_groups = [self.col_exp, self.col_bio_rep, self.col_tech_rep, self.col_weight_type,
                                self.col_link_type, self.col_origin]
         self.area_columns = [self.col_area_sum_total, self.col_area_sum_light, self.col_area_sum_heavy]
+        if self.distance_list:
+            self.df_orig, dist_cols = self.add_link_distances(self.df_orig, df_dist)
+            self.minimal_groups.extend(dist_cols)
         if self.col_reaction_state in self.df_orig.columns:
             self.minimal_groups.append(self.col_reaction_state)
+        # this groupby operation looses all column names in pandas 1.3.0... Bug???
         self.df_orig = self.df_orig.groupby([self.col_level] + self.minimal_groups)[
             self.area_columns].sum().reset_index()
         if self.impute_missing:
@@ -308,12 +310,12 @@ class BagContainer(object):
         # let's remove the weight, link type and charge from uid string; so we have the same uids for both container types
         # using regex to match either :heavy or :light and all the following string (.*)
         df[self.uid_string] = df[self.uid_string].str.replace(
-            f":({self.row_light_string}|{self.row_heavy_string}).*", "")
+            f":({self.row_light_string}|{self.row_heavy_string}).*", "", regex=True)
         # doing the same for the link type string
         df[self.uid_string] = df[self.uid_string].str.replace(
-            f":({self.row_monolink_string}|{self.row_xlink_string}|{self.row_loop_link}).*", "")
+            f":({self.row_monolink_string}|{self.row_xlink_string}|{self.row_loop_link}).*", "", regex=True)
         # and again for the charge string
-        df[self.uid_string] = df[self.uid_string].str.replace(f":({'::*'}).*", "")
+        df[self.uid_string] = df[self.uid_string].str.replace(f":({'::*'}).*", "", regex=True)
         return df
 
 
@@ -486,10 +488,11 @@ class BagContainer(object):
 
     def add_link_distances(self, df, df_dist):
         df_dist = df_dist.drop_duplicates()
+        dist_cols = list(set(df_dist.columns) - set(df.columns))
         print(df.shape)
         df = pd.merge(df, df_dist, how='left', on=[self.col_exp, self.col_uxid])
         print(df.shape)
-        return df
+        return df, dist_cols
 
 
     def remove_lh_violations(self, df):
@@ -823,5 +826,5 @@ class BagContainer(object):
         if self.row_monolink_string in df[self.col_link_type].unique():
             df[self.col_reaction_state] = df[self.col_uid].transform(_get_reaction_state)
             df[self.col_uid] = df[self.col_uid].str.replace(
-                f"-15(5|6).*", "")
+                f"-15(5|6).*", "", regex=True)
         return df
