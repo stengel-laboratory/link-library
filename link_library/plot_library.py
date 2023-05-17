@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import shutil
 import os
-from altair_saver import save
 
 """
 2018-10-19 - Kai Kammer
@@ -28,6 +27,7 @@ def save_fig(out_name, df_list=None, out_dir='plots'):
     plt.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name))
     write_csv(df_list, out_dir, out_name)
 
+# not needed anymore with altair 5 and vl-convert
 def get_altair_driver():
     chromedriver = 'chromedriver'
     chrome_names = ['chrome', 'chromium', 'chromium-browser', 'chromium-browser-privacy']
@@ -50,11 +50,10 @@ def get_altair_driver():
 def save_g(fg, out_name, df_list=None, out_dir='plots', **kwargs):
     out_dir = create_plots_dir(out_dir)
     if 'altair' in str(type(fg)):
-        driver = get_altair_driver()
-        save(fg, "{0}/plot_{1}.png".format(out_dir, out_name), method='selenium', scale_factor=2, webdriver=driver)
-        save(fg, "{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), method='selenium', scale_factor=2, webdriver=driver)
-        # fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2, webdriver=driver)
-        # fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2, webdriver=driver)
+        # save(fg, "{0}/plot_{1}.png".format(out_dir, out_name), method='selenium', scale_factor=2, webdriver=driver)
+        # save(fg, "{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), method='selenium', scale_factor=2, webdriver=driver)
+        fg.save("{0}/plot_{1}.png".format(out_dir, out_name), scale_factor=2)
+        fg.save("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), scale_factor=2)
     else:
         fg.savefig("{0}/plot_{1}.png".format(out_dir, out_name), **kwargs)
         fg.savefig("{0}/plot_{1}.svg".format(out_dir + '/svg', out_name), **kwargs)

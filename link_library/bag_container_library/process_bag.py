@@ -423,7 +423,7 @@ class BagContainer(object):
     def get_imputed_df(self, df):
         # helper function which first pivots the dataframe and then unstacks it again
         # this will automatically create missing values based on the minimal groups
-        # for example a value that was not observed in one the technical replicate but not in another
+        # for example a value that was not observed in one technical replicate but not in another
         # missing values will be returned as NaNs
         def _stacker(df_tmp):
             df_pivot = pd.pivot_table(df_tmp, values=self.col_area_sum_total, index=[self.col_level],
